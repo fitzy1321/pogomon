@@ -1,4 +1,4 @@
-module codeberg.org/fitzy1321/go-pokebattle
+module go-pokebattle
 
 go 1.26.4
 

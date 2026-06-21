@@ -9,7 +9,7 @@ import (
 
 	// "runtime"
 
-	"codeberg.org/fitzy1321/go-pokebattle/setup"
+	"go-pokebattle/setup"
 )
 
 // func osLevelStuff() error {

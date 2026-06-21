@@ -24,11 +24,11 @@ func DataSeeding() {
 	pokeDataChan := make(chan fullPokeData, POKEMON_COUNT)
 	var wg sync.WaitGroup
 	for i := range POKEMON_COUNT {
-		pokeId := i + 1
+		pokeId := uint(i + 1)
 		pokemon_url := fmt.Sprintf("%s/pokemon/%d", BASE_URL, pokeId)
 
 		wg.Add(1)
-		go func(url string, pokeId int) {
+		go func(url string, pokeId uint) {
 			defer wg.Done()
 
 			pokemondata, err := fetchPokeAPI(url)
@@ -44,7 +44,7 @@ func DataSeeding() {
 				Name:            pokemondata["name"].(string),
 				Type_1:          type_1,
 				Type_2:          type_2,
-				Base_experience: int(pokemondata["base_experience"].(float64)),
+				Base_experience: uint(pokemondata["base_experience"].(float64)),
 				Stats:           getStats(pokemondata),
 			}
 
@@ -64,18 +64,18 @@ type movesData struct {
 }
 
 type nextEvoData struct {
-	Evolves_into_id int
+	Evolves_into_id uint
 	Trigger         string
-	Min_level       int
+	Min_level       uint
 	Item            *string // nullable
 }
 
 type fullPokeData struct {
-	Id              int
+	Id              uint
 	Name            string
 	Type_1          string
 	Type_2          *string // nullable
-	Base_experience int
+	Base_experience uint
 	Stats           map[string]int
 	Moves           []movesData
 	Next_evolutions []nextEvoData
