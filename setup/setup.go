@@ -16,11 +16,15 @@ const SPRITE_URL_BASE string = "https://raw.githubusercontent.com/PokeAPI/sprite
 
 const POKEMON_COUNT int = 151
 
-func SqliteDb(db_path string) (*gorm.DB, error) {
+func GetSqliteDb(db_path string) (*gorm.DB, error) {
 	return gorm.Open(sqlite.Open(db_path), &gorm.Config{})
 }
 
-func DataSeeding() {
+func CreateSqliteDb(data []fullPokeData, path string) error {
+	return nil
+}
+
+func FetchFromPokeAPI() []fullPokeData {
 	pokeDataChan := make(chan fullPokeData, POKEMON_COUNT)
 	var wg sync.WaitGroup
 	for i := range POKEMON_COUNT {
@@ -33,6 +37,7 @@ func DataSeeding() {
 
 			pokemondata, err := fetchPokeAPI(url)
 			if err != nil {
+				// TODO: is this the best way to handle this error?
 				fmt.Fprintln(os.Stderr, err)
 				return
 			}
@@ -53,11 +58,12 @@ func DataSeeding() {
 	wg.Wait()
 	close(pokeDataChan)
 
-	var fullAPIData []fullPokeData
+	fullAPIData := make([]fullPokeData, POKEMON_COUNT)
 	for item := range pokeDataChan {
 		fullAPIData = append(fullAPIData, item)
 		fmt.Printf("Showing results I guess. %v\n", item)
 	}
+	return fullAPIData
 }
 
 type movesData struct {
@@ -149,3 +155,32 @@ func getTypes(data map[string]any) (string, *string) {
 	}
 	return type_1, type_2
 }
+
+// func osLevelStuff() error {
+// 	home_path, ok := os.LookupEnv("HOME")
+// 	if !ok {
+// 		return fmt.Errorf("No Home ENV, something is wrong ...\n")
+
+// 	}
+// 	fmt.Println("Home path:", home_path)
+
+// 	xdg_data := os.Getenv("XDG_DATA_HOME")
+// 	fmt.Println("idk if this is real? :", xdg_data)
+
+// 	xdg_config := os.Getenv("XDG_CONFIG_HOME")
+// 	fmt.Println("XDG_CONFIG_HOME:", xdg_config)
+
+// 	osname := runtime.GOOS
+// 	switch osname {
+// 	case "windows":
+// 		fmt.Println("Windows specific stuff")
+// 	case "darwin":
+// 		fmt.Println("MacOS stuff")
+// 	case "linux":
+// 		fmt.Println("linux stuff")
+// 	default:
+// 		fmt.Println("I have no idea what you're on ...")
+// 	}
+
+// 	return nil
+// }

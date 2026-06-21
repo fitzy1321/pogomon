@@ -7,40 +7,10 @@ import (
 	"io/fs"
 	"os"
 
-	// "runtime"
-
 	"go-pokebattle/setup"
 )
 
-// func osLevelStuff() error {
-// 	home_path, ok := os.LookupEnv("HOME")
-// 	if !ok {
-// 		return fmt.Errorf("No Home ENV, something is wrong ...\n")
-
-// 	}
-// 	fmt.Println("Home path:", home_path)
-
-// 	xdg_data := os.Getenv("XDG_DATA_HOME")
-// 	fmt.Println("idk if this is real? :", xdg_data)
-
-// 	xdg_config := os.Getenv("XDG_CONFIG_HOME")
-// 	fmt.Println("XDG_CONFIG_HOME:", xdg_config)
-
-// 	osname := runtime.GOOS
-// 	switch osname {
-// 	case "windows":
-// 		fmt.Println("Windows specific stuff")
-// 	case "darwin":
-// 		fmt.Println("MacOS stuff")
-// 	case "linux":
-// 		fmt.Println("linux stuff")
-// 	default:
-// 		fmt.Println("I have no idea what you're on ...")
-// 	}
-
-// 	return nil
-// }
-
+// ! gorm struct, do not change the member names
 type Pokemon struct {
 	Id              uint `gorm:"primaryKey"`
 	Name            string
@@ -62,6 +32,7 @@ func (Pokemon) TableName() string {
 	return "dex_pokemon"
 }
 
+// ! gorm struct, do not change the member names
 type Move struct {
 	Id             uint `gorm:"primaryKey"`
 	Name           string
@@ -83,39 +54,49 @@ func (Move) TableName() string {
 
 func dbPathExists(path string) (bool, error) {
 	_, err := os.Stat(path)
+	// happy path, file exists no errors
 	if err == nil {
 		return true, nil
 	}
+	// file doesnot exist error, return false instead
 	if errors.Is(err, fs.ErrNotExist) {
 		return false, nil
 	}
-	return false, err // some other error, e.g. permission denied
+	// some other error, e.g. permission denied
+	return false, err
 }
 
 func main() {
-	setup.DataSeeding()
 	db_path := "pokedata.db"
-	exists, err := dbPathExists(db_path)
-	if !exists || err != nil {
-		// call api and setup sqlitedb
-		setup.DataSeeding()
-	}
+	// exists, err := dbPathExists(db_path)
+	// if !exists || err != nil {
+	// 	// call api and setup sqlitedb
+	// 	apiPokeData := setup.FetchFromPokeAPI()
+	// 	setup.CreateSqliteDb(apiPokeData)
+	// }
 
+	// * Fetch Data From PokeAPI * //
+	apiPokeData := setup.FetchFromPokeAPI()
+
+	// * Create SQLite DB, seed with API Data * //
+	setup.CreateSqliteDb(apiPokeData, db_path)
+
+	// * Wait for terminal input * //
 	buf := bufio.NewReader(os.Stdin)
 	fmt.Print("> ")
-	_, err = buf.ReadBytes('\n')
+	_, err := buf.ReadBytes('\n')
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	// open gorm and sqlite db
-	db, err := setup.SqliteDb(db_path)
+	// * Get Gorm/Sqlite DB * //
+	db, err := setup.GetSqliteDb(db_path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to pokemon database: %v\n", err)
 		return
 	}
 
-	// get all pokemon
+	// * Get all Pokemon * //
 	var pokedex []Pokemon
 	result := db.Find(&pokedex)
 	if result.Error != nil {
@@ -123,12 +104,12 @@ func main() {
 		return
 	}
 
-	// print pokemon
+	// * print some Pokemon data, coming from sqlite * //
 	for _, k := range pokedex {
 		fmt.Printf("Pokemon Id: %d Name: %s Type: %s\n", k.Id, k.Name, k.Type_1)
 	}
 
-	// // get al moves
+	// // * get al moves * //
 	// var movedex []Move
 	// result = db.Find(&movedex)
 	// if result.Error != nil {
@@ -136,7 +117,7 @@ func main() {
 	// 	return
 	// }
 
-	// // print all moves
+	// // * print all moves * //
 	// for _, k := range movedex {
 	// 	fmt.Printf("Move id: %d, Name: %s\n", k.Id, k.Name)
 	// }
