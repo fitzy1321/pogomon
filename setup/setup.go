@@ -20,17 +20,20 @@ func GetSqliteDb(db_path string) (*gorm.DB, error) {
 	return gorm.Open(sqlite.Open(db_path), &gorm.Config{})
 }
 
-func CreateSqliteDb(data []fullPokeData, path string) error {
+func CreateSqliteDb(data *[]fullPokeData, path string) error {
 	return nil
 }
 
-func FetchFromPokeAPI() []fullPokeData {
+func FetchFromPokeAPI() *[]fullPokeData {
+	// WARN: buffered channel, don't change unless you know what you're doing (more than me 🙃).
+	// WARN: concurrency gremlins will appear
 	pokeDataChan := make(chan fullPokeData, POKEMON_COUNT)
 	var wg sync.WaitGroup
 	for i := range POKEMON_COUNT {
 		pokeId := uint(i + 1)
 		pokemon_url := fmt.Sprintf("%s/pokemon/%d", BASE_URL, pokeId)
 
+		// * Where the ✨Magic✨ happens
 		wg.Add(1)
 		go func(url string, pokeId uint) {
 			defer wg.Done()
@@ -55,15 +58,28 @@ func FetchFromPokeAPI() []fullPokeData {
 
 		}(pokemon_url, pokeId)
 	}
+	// * Wait for all goroutines and close the channel
 	wg.Wait()
+	// this may not get called if the buffered channel is changed, btw
 	close(pokeDataChan)
 
+	// * Allocate memory for our slice
 	fullAPIData := make([]fullPokeData, POKEMON_COUNT)
+
+	// * Get data out of channel
+	counter := 0
 	for item := range pokeDataChan {
-		fullAPIData = append(fullAPIData, item)
+		fullAPIData[counter] = item
 		fmt.Printf("Showing results I guess. %v\n", item)
+		counter++
+		if counter >= POKEMON_COUNT {
+			break
+		}
 	}
-	return fullAPIData
+	// fmt.Println("Number of counted objects from channel:", counter)
+	// fmt.Println("Length of array from Fetch Function: ", len(fullAPIData))
+
+	return &fullAPIData
 }
 
 type movesData struct {
