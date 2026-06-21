@@ -20,11 +20,11 @@ func GetSqliteDb(db_path string) (*gorm.DB, error) {
 	return gorm.Open(sqlite.Open(db_path), &gorm.Config{})
 }
 
-func CreateSqliteDb(data *[]fullPokeData, path string) error {
+func CreateSqliteDb(data []fullPokeData, path string) error {
 	return nil
 }
 
-func FetchFromPokeAPI() *[]fullPokeData {
+func FetchFromPokeAPI() []fullPokeData {
 	// WARN: buffered channel, don't change unless you know what you're doing (more than me 🙃).
 	// WARN: concurrency gremlins will appear
 	pokeDataChan := make(chan fullPokeData, POKEMON_COUNT)
@@ -64,22 +64,15 @@ func FetchFromPokeAPI() *[]fullPokeData {
 	close(pokeDataChan)
 
 	// * Allocate memory for our slice
-	fullAPIData := make([]fullPokeData, POKEMON_COUNT)
+	fullAPIData := make([]fullPokeData, 0, len(pokeDataChan))
 
 	// * Get data out of channel
-	counter := 0
 	for item := range pokeDataChan {
-		fullAPIData[counter] = item
+		fullAPIData = append(fullAPIData, item)
 		fmt.Printf("Showing results I guess. %v\n", item)
-		counter++
-		if counter >= POKEMON_COUNT {
-			break
-		}
 	}
-	// fmt.Println("Number of counted objects from channel:", counter)
-	// fmt.Println("Length of array from Fetch Function: ", len(fullAPIData))
 
-	return &fullAPIData
+	return fullAPIData
 }
 
 type movesData struct {

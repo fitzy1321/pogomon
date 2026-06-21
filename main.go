@@ -81,7 +81,7 @@ func main() {
 	// * Create SQLite DB, seed with API Data
 	setup.CreateSqliteDb(apiPokeData, db_path)
 
-	fmt.Println("Length of pointer to array in main:", len(*apiPokeData))
+	fmt.Println("Length of pointer to array in main:", len(apiPokeData), "capacity:", cap(apiPokeData))
 
 	// * Wait for terminal input
 	buf := bufio.NewReader(os.Stdin)
