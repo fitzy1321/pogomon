@@ -9,7 +9,6 @@ import (
 	"sync"
 
 	mapset "github.com/deckarep/golang-set/v2"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -22,12 +21,16 @@ const (
 type dict = map[string]any
 
 func GetSqliteDb(db_path string) (*gorm.DB, error) {
-	return gorm.Open(sqlite.Open(db_path), &gorm.Config{})
+	return internalGormDbSetup(db_path)
 }
 
-func FetchDataAndCreateSqliteDb(db_path string) error {
-	return CreateSqliteDb(FetchPokemonData(), db_path)
+func CreateSqliteDb(data []fullPokeData, path string) error {
+	return createSqliteDb(data, path)
 }
+
+// func FetchDataAndCreateSqliteDb(db_path string) error {
+// 	return CreateSqliteDb(FetchPokemonData(), db_path)
+// }
 
 func FetchPokemonData() []fullPokeData {
 	// WARN: buffered channel, don't change unless you know what you're doing (more than me 🙃).
@@ -36,7 +39,7 @@ func FetchPokemonData() []fullPokeData {
 	var wg sync.WaitGroup
 	for i := range Gen1PokemonCount {
 		pokeId := uint(i + 1)
-		pokemon_url := fmt.Sprintf("%s/pokemon/%d", BaseUrl, pokeId)
+		pokemonUrl := fmt.Sprintf("%s/pokemon/%d", BaseUrl, pokeId)
 
 		// * Where the ✨Magic✨ happens
 		wg.Add(1)
@@ -44,7 +47,7 @@ func FetchPokemonData() []fullPokeData {
 			defer wg.Done()
 
 			// * Top level PokeAPI pokemon object request
-			pokemondata, err := fetchPokeAPIData(url)
+			pokemonData, err := fetchPokeAPIData(url)
 			if err != nil {
 				// TODO: is this the best way to handle this error?
 				fmt.Fprintln(os.Stderr, err)
@@ -52,15 +55,15 @@ func FetchPokemonData() []fullPokeData {
 			}
 
 			// * Get Pokemon Type data, no additional requests
-			type_1, type_2 := getPokemonTypes(pokemondata)
+			type1, type2 := getPokemonTypes(pokemonData)
 
-			stats := getStats(pokemondata)
+			stats := getStats(pokemonData)
 			if stats == nil {
 				stats = &statsData{}
 			}
 
 			// * Get moves, will perform additional network requests for detailed move data...
-			mvData, err := getMovesData(pokemondata)
+			mvData, err := getMovesData(pokemonData)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err)
 			}
@@ -69,33 +72,33 @@ func FetchPokemonData() []fullPokeData {
 			frontSprite, backSprite, err := getSprites(pokeId)
 
 			// * Species Data PokeAPI request, network request
-			var growth_rate *string = nil
-			if speciesUrl, ok := pokemondata["species"].(dict)["url"].(string); ok {
+			var growthRate *string = nil
+			if speciesUrl, ok := pokemonData["species"].(dict)["url"].(string); ok {
 				speciesData, spErr := fetchPokeAPIData(speciesUrl)
 				if spErr != nil {
 					fmt.Fprintln(os.Stderr, spErr)
 					return
 				}
 				grstr := speciesData["growth_rate"].(dict)["name"].(string)
-				growth_rate = &grstr
+				growthRate = &grstr
 				// TODO: Evolution Data
 			}
 
 			pokeDataChan <- fullPokeData{
-				Id:              pokeId,
-				Name:            pokemondata["name"].(string),
-				Type_1:          type_1,
-				Type_2:          type_2,
-				Base_experience: int(pokemondata["base_experience"].(float64)),
-				Stats:           *stats,
-				Moves:           mvData,
-				Next_evolutions: []nextEvoData{}, // TODO: fix later
-				Growth_Rate:     growth_rate,
-				Front_sprite:    frontSprite,
-				Back_sprite:     backSprite,
+				Id:             pokeId,
+				Name:           pokemonData["name"].(string),
+				Type1:          type1,
+				Type2:          type2,
+				BaseExperience: int(pokemonData["base_experience"].(float64)),
+				Stats:          *stats,
+				Moves:          mvData,
+				NextEvolutions: []nextEvoData{}, // TODO: fix later
+				GrowthRate:     growthRate,
+				FrontSprite:    frontSprite,
+				BackSprite:     backSprite,
 			}
 			// end go func
-		}(pokemon_url, pokeId)
+		}(pokemonUrl, pokeId)
 		// end forloop
 	}
 
@@ -113,20 +116,6 @@ func FetchPokemonData() []fullPokeData {
 	return fullAPIData
 }
 
-func CreateSqliteDb(data []fullPokeData, path string) error {
-	_, err := GetSqliteDb(path)
-	if err != nil {
-		return err
-	}
-
-	// TODO: Create Table Schema
-	// TODO: Make sure foreign Keys are on for sqlite
-	// TODO: ETL go struct to sql inserts
-	// TODO: commit, cleanup, exit
-
-	return nil
-}
-
 func fetchPokeAPIData(url string) (dict, error) {
 	resp, err := http.Get(url)
 	if err != nil {
@@ -134,12 +123,12 @@ func fetchPokeAPIData(url string) (dict, error) {
 	}
 	defer resp.Body.Close()
 
-	var pokemondata dict
-	if err := json.NewDecoder(resp.Body).Decode(&pokemondata); err != nil {
+	var data dict
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return nil, err
 	}
-	return pokemondata, nil
+	return data, nil
 }
 
 func getSprites(pokeId uint) (ftSprite []byte, bkSprite []byte, err error) {
@@ -179,7 +168,7 @@ func spriteHandler(resp *http.Response) ([]byte, error) {
 }
 
 func getMovesData(pokeData dict) ([]moveData, error) {
-	var rb_moves []_mvIR
+	var rbMoves []_mvIR
 	names := mapset.NewSet[string]()
 
 	pokeMoves, ok := pokeData["moves"].([]any)
@@ -199,7 +188,7 @@ func getMovesData(pokeData dict) ([]moveData, error) {
 				moveName := md["move"].(dict)["name"].(string)
 				if !names.Contains(moveName) {
 					names.Add(moveName)
-					rb_moves = append(rb_moves, _mvIR{
+					rbMoves = append(rbMoves, _mvIR{
 						name:   moveName,
 						level:  int(vgd["level_learned_at"].(float64)),
 						url:    md["move"].(dict)["url"].(string),
@@ -211,7 +200,7 @@ func getMovesData(pokeData dict) ([]moveData, error) {
 	} // end for
 
 	var detailed []moveData
-	for _, move := range rb_moves {
+	for _, move := range rbMoves {
 		mvData, err := fetchPokeAPIData(move.url)
 		if err != nil {
 			// TODO: error handle, idk man ..
@@ -259,28 +248,28 @@ func getMovesData(pokeData dict) ([]moveData, error) {
 		}
 
 		detailed = append(detailed, moveData{
-			Name:           move.name,
-			Level_learned:  uint(move.level),
-			Learn_method:   move.method,
-			Max_pp:         mpp,
-			Power:          power,
-			Accuracy:       acc,
-			Type:           mtype,
-			Damage_class:   dc,
-			Ailment:        ailment,
-			Ailment_chance: ailmentChance,
+			Name:          move.name,
+			LevelLearned:  uint(move.level),
+			LearnMethod:   move.method,
+			MaxPp:         mpp,
+			Power:         power,
+			Accuracy:      acc,
+			Type:          mtype,
+			DamageClass:   dc,
+			Ailment:       ailment,
+			AilmentChance: ailmentChance,
 			// Move_category:  meta["category"].(dict)["name"].(string),
 			// Healing:        meta["healing"].(int),
 			// Drain:          meta["drain"].(int),
-			Stat_changes: []statChange{}, // TODO: fix later
+			StatChanges: []statChange{}, // TODO: fix later
 		})
 	}
 	return detailed, nil
 }
 
 func getPokemonTypes(data dict) (string, *string) {
-	var type_1 string
-	var type_2 *string
+	var type1 string
+	var type2 *string
 	for _, t := range data["types"].([]any) {
 		tm := t.(dict)
 		slot := int(tm["slot"].(float64))
@@ -293,15 +282,15 @@ func getPokemonTypes(data dict) (string, *string) {
 		switch slot {
 		case 1:
 			// type_1 should always be there, so normal string works
-			type_1 = *name
+			type1 = *name
 		case 2:
 			// type_2 can be null, so this should be a pointer
-			type_2 = name
+			type2 = name
 		default:
 			// TODO: ? pass ?
 		}
 	}
-	return type_1, type_2
+	return type1, type2
 }
 
 func getStats(data dict) *statsData {
@@ -313,12 +302,12 @@ func getStats(data dict) *statsData {
 		stats[name] = baseStat
 	}
 	return &statsData{
-		Attack:          stats["attack"],
-		Defense:         stats["defense"],
-		Hp:              stats["hp"],
-		Special_Attack:  stats["special-attack"],
-		Special_Defense: stats["special-defense"],
-		Speed:           stats["speed"],
+		Attack:         stats["attack"],
+		Defense:        stats["defense"],
+		Hp:             stats["hp"],
+		SpecialAttack:  stats["special-attack"],
+		SpecialDefense: stats["special-defense"],
+		Speed:          stats["speed"],
 	}
 }
 

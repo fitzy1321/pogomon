@@ -33,7 +33,7 @@ func main() {
 		}
 	}()
 
-	db_path := "pokedata.db"
+	dbPath := "pokedata.db"
 	// exists, err := dbPathExists(db_path)
 	// if !exists || err != nil {
 	// 	// * Fetch Data From PokeAPI, Create SQLite DB, seeded with API Data
@@ -44,14 +44,14 @@ func main() {
 	// setup.FetchDataAndCreateSqliteDb(db_path)
 	data := setup.FetchPokemonData()
 	fmt.Println("Length of pokemon data from api:", len(data))
-	setup.CreateSqliteDb(data, db_path)
+	setup.CreateSqliteDb(data, dbPath)
 
 	// * Wait for terminal input
 	fmt.Print("> ")
 	fmt.Scanln()
 
 	// * Get Gorm/Sqlite DB
-	db, err := setup.GetSqliteDb(db_path)
+	db, err := setup.GetSqliteDb(dbPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to pokemon database: %v\n", err)
 		return
