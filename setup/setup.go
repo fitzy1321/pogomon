@@ -2,183 +2,194 @@ package setup
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
-	"sync"
+
+	. "go-pokebattle/result"
 
 	mapset "github.com/deckarep/golang-set/v2"
-	"gorm.io/gorm"
 )
 
 const (
-	BaseUrl          string = "https://pokeapi.co/api/v2"
-	Gen1PokemonCount int    = 151
-	SpriteUrlBase    string = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-i/red-blue/transparent"
+	BASEURL          string = "https://pokeapi.co/api/v2"
+	GEN1POKEMONCOUNT int    = 151
+	SPRITEURLBASE    string = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-i/red-blue/transparent"
 )
 
-type dict = map[string]any
+type (
+	dict = map[string]any
+)
 
-// Initialize gorm and sqlite, without a full rebuild step
-func GetSqliteDb(db_path string) (*gorm.DB, error) {
-	return internalGormDbSetup(db_path)
-}
+func FetchPokemonData() []FullPokeData {
+	fullApiData := make([]FullPokeData, 0, GEN1POKEMONCOUNT)
+	chPokeData := make(chan Result[FullPokeData], GEN1POKEMONCOUNT)
 
-// Rebuild sqlite db and initialize gorm. May cause problems if file already exists
-func CreateSqliteDb(data []fullPokeData, path string) (*gorm.DB, error) {
-	return createSqliteDb(data, path)
-}
-
-func FetchPokemonData() []fullPokeData {
-	// WARN: buffered channel, don't change unless you know what you're doing (more than me 🙃).
-	// WARN: concurrency gremlins will appear
-	pokeDataChan := make(chan fullPokeData, Gen1PokemonCount)
-	var wg sync.WaitGroup
-	for i := range Gen1PokemonCount {
+	// use this to cap amount of goroutines running at once
+	semafore := make(chan struct{}, 20)
+	for i := range GEN1POKEMONCOUNT {
 		pokeId := uint(i + 1)
-		pokemonUrl := fmt.Sprintf("%s/pokemon/%d", BaseUrl, pokeId)
+		url := fmt.Sprintf("%s/pokemon/%d", BASEURL, pokeId)
 
-		// * Where the ✨Magic✨ happens
-		wg.Add(1)
-		go func(url string, pokeId uint) {
-			defer wg.Done()
+		go func() {
+			semafore <- struct{}{}        // "acquire lock"
+			defer func() { <-semafore }() // "release lock once complete"
+			chPokeData <- rawApiDataToStructs(url, pokeId)
+		}()
+	}
 
-			// * Top level PokeAPI pokemon object request
-			pokemonData, err := fetchPokeAPIData(url)
+	for range GEN1POKEMONCOUNT {
+		r := <-chPokeData
+		if r.IsOk() {
+			fullApiData = append(fullApiData, r.Value)
+			fmt.Printf("Pokemon #%d, %s\n", r.Value.Id, r.Value.Name)
+			// fmt.Printf("%+v\n", r)
+		} else {
+			fmt.Fprintf(os.Stderr, "Error from goroutines: %+v", r.GetError())
+		}
+	}
+	close(chPokeData)
+
+	return fullApiData
+}
+
+func rawApiDataToStructs(url string, pokeId uint) Result[FullPokeData] {
+	pokemonData, err := fetchPokeAPIData(url)
+	if err != nil {
+		return Err[FullPokeData](err)
+	}
+
+	type1, type2, err := getPokemonTypes(pokemonData)
+	if err != nil {
+		return Err[FullPokeData](err)
+	}
+
+	stats := getStats(pokemonData)
+	if stats == nil {
+		stats = &StatsData{}
+	}
+
+	chMvData := make(chan Result[[]MoveData], 1)
+	chSprites := make(chan Result[Sprites], 1)
+	chGrowthRate := make(chan Result[*string], 1)
+
+	go func() {
+		chMvData <- getMovesData(pokemonData)
+	}()
+
+	go func() {
+		chSprites <- getSprites(pokeId)
+	}()
+
+	go func() {
+		if speciesUrl, ok := pokemonData["species"].(dict)["url"].(string); ok {
+			speciesData, err := fetchPokeAPIData(speciesUrl)
 			if err != nil {
-				// TODO: is this the best way to handle this error?
-				fmt.Fprintln(os.Stderr, err)
+				chGrowthRate <- Err[*string](err)
 				return
 			}
-
-			// * Get Pokemon Type data, no additional requests
-			type1, type2 := getPokemonTypes(pokemonData)
-
-			stats := getStats(pokemonData)
-			if stats == nil {
-				stats = &statsData{}
+			grstr, ok := speciesData["growth_rate"].(dict)["name"].(string)
+			if !ok {
+				chGrowthRate <- ErrFromStr[*string](fmt.Sprintf("Error getting growth_rate from species data for #%d", pokeId))
+				return
 			}
+			chGrowthRate <- Ok(&grstr)
+			// TODO: Evolution Data
+		}
+	}()
 
-			// * Get moves, will perform additional network requests for detailed move data...
-			mvData, err := getMovesData(pokemonData)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-			}
-
-			// * Get Sprites PNGs (2 network requests, front and back PNGs)
-			frontSprite, backSprite, err := getSprites(pokeId)
-
-			// * Species Data PokeAPI request, network request
-			var growthRate *string = nil
-			if speciesUrl, ok := pokemonData["species"].(dict)["url"].(string); ok {
-				speciesData, spErr := fetchPokeAPIData(speciesUrl)
-				if spErr != nil {
-					fmt.Fprintln(os.Stderr, spErr)
-					return
-				}
-				grstr := speciesData["growth_rate"].(dict)["name"].(string)
-				growthRate = &grstr
-				// TODO: Evolution Data
-			}
-
-			pokeDataChan <- fullPokeData{
-				Id:             pokeId,
-				Name:           pokemonData["name"].(string),
-				Type1:          type1,
-				Type2:          type2,
-				BaseExperience: int(pokemonData["base_experience"].(float64)),
-				Stats:          *stats,
-				Moves:          mvData,
-				NextEvolutions: []nextEvoData{}, // TODO: fix later
-				GrowthRate:     growthRate,
-				FrontSprite:    frontSprite,
-				BackSprite:     backSprite,
-			}
-			// end go func
-		}(pokemonUrl, pokeId)
-		// end forloop
+	mvDataRes := <-chMvData
+	if mvDataRes.IsErr() {
+		return Err[FullPokeData](mvDataRes.GetError())
+	}
+	spriteRes := <-chSprites
+	if spriteRes.IsErr() {
+		return Err[FullPokeData](spriteRes.GetError())
+	}
+	grRes := <-chGrowthRate
+	if grRes.IsErr() {
+		return Err[FullPokeData](grRes.GetError())
 	}
 
-	// * Wait for all goroutines and close the channel
-	wg.Wait()
-	// this may not get called if the buffered channel is changed, btw
-	close(pokeDataChan)
-
-	// * Get data out of channel
-	fullAPIData := make([]fullPokeData, 0, len(pokeDataChan))
-	for item := range pokeDataChan {
-		fullAPIData = append(fullAPIData, item)
-		fmt.Printf("Showing results I guess. %+v\n", item)
-	}
-	return fullAPIData
+	return Ok(FullPokeData{
+		Id:             pokeId,
+		Name:           pokemonData["name"].(string),
+		Type1:          type1,
+		Type2:          type2,
+		BaseExperience: int(pokemonData["base_experience"].(float64)),
+		Stats:          *stats,
+		Moves:          mvDataRes.Value,
+		NextEvolutions: []NextEvoData{}, // TODO: fix later
+		GrowthRate:     grRes.Value,
+		Sprites:        spriteRes.Value,
+	})
 }
 
 func fetchPokeAPIData(url string) (dict, error) {
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, err
+		return dict{}, err
 	}
 	defer resp.Body.Close()
 
 	var data dict
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return nil, err
+		return dict{}, err
 	}
 	return data, nil
 }
 
-func getSprites(pokeId uint) (ftSprite []byte, bkSprite []byte, err error) {
-	err = nil
-	frontUrl := fmt.Sprintf("%s/%d.png", SpriteUrlBase, pokeId)
-	backUrl := fmt.Sprintf("%s/back/%d.png", SpriteUrlBase, pokeId)
+func getSprites(pokeId uint) Result[Sprites] {
+	frontUrl := fmt.Sprintf("%s/%d.png", SPRITEURLBASE, pokeId)
+	backUrl := fmt.Sprintf("%s/back/%d.png", SPRITEURLBASE, pokeId)
 
-	ftResp, ftRspErr := http.Get(frontUrl)
-	if ftRspErr != nil {
-		err = ftRspErr
+	sprHandler := func(resp *http.Response) ([]byte, error) {
+		if resp.Header.Get("Content-Type") == "image/png" {
+			return io.ReadAll(resp.Body)
+		}
+		return nil, fmt.Errorf("Wrong Content-Type from network response.%v", resp.Header.Get("Content-Type"))
+	}
+
+	ftResp, err := http.Get(frontUrl)
+	if err != nil {
+		return Err[Sprites](err)
 	}
 	defer ftResp.Body.Close()
 
-	ftSprite, ftErr := spriteHandler(ftResp)
-	if ftErr != nil {
-		err = ftErr
+	ftSprite, err := sprHandler(ftResp)
+	if err != nil {
+		return Err[Sprites](err)
 	}
 
-	bkResp, bkRspErr := http.Get(backUrl)
-	if bkRspErr != nil {
-		err = bkRspErr
+	bkResp, err := http.Get(backUrl)
+	if err != nil {
+		return Err[Sprites](err)
 	}
 	defer bkResp.Body.Close()
 
-	bkSprite, bkErr := spriteHandler(bkResp)
-	if bkErr != nil {
-		err = bkErr
+	bkSprite, err := sprHandler(bkResp)
+	if err != nil {
+		return Err[Sprites](err)
 	}
-	return
+	return Ok(Sprites{ftSprite, bkSprite})
 }
 
-func spriteHandler(resp *http.Response) ([]byte, error) {
-	if resp.Header.Get("Content-Type") == "image/png" {
-		return io.ReadAll(resp.Body)
-	}
-	return nil, fmt.Errorf("Wrong Content-Type from network response.%v", resp.Header.Get("Content-Type"))
-}
-
-func getMovesData(pokeData dict) ([]moveData, error) {
+func getMovesData(pokeData dict) Result[[]MoveData] {
 	var rbMoves []_mvIR
 	names := mapset.NewSet[string]()
 
 	pokeMoves, ok := pokeData["moves"].([]any)
 	if !ok {
-		return nil, fmt.Errorf("No move data ...")
+		return Err[[]MoveData](errors.New("No move data ..."))
 	}
 
 	for _, pmMv := range pokeMoves {
 		md := pmMv.(dict)
 		vgdTop, ok := md["version_group_details"].([]any)
 		if !ok {
-			// TODO: error handle, idk man ...
+			return Err[[]MoveData](errors.New("Failed to parse 'version_group_details' in go map ..."))
 		}
 		for _, vgdIR := range vgdTop {
 			vgd := vgdIR.(dict)
@@ -197,19 +208,20 @@ func getMovesData(pokeData dict) ([]moveData, error) {
 		} // end for
 	} // end for
 
-	var detailed []moveData
+	var detailed []MoveData
 	for _, move := range rbMoves {
 		mvData, err := fetchPokeAPIData(move.url)
 		if err != nil {
 			// TODO: error handle, idk man ..
 		}
+
 		meta, ok := mvData["meta"].(dict)
 		if !ok {
 			// TODO: error handle idk man ...
 		}
 
 		// TODO: implement []statChange data
-		// statChanges := []statChange{}
+		statChanges := []StatChange{}
 
 		var power *int = nil
 		if tp, ok := mvData["power"].(int); ok {
@@ -236,16 +248,31 @@ func getMovesData(pokeData dict) ([]moveData, error) {
 			dc = &tdc
 		}
 		var ailment *string = nil
-		if tailment, ok := meta["ailment"].(dict)["name"].(string); ok {
-			ailment = &tailment
+		if tAilment, ok := meta["ailment"].(dict)["name"].(string); ok {
+			ailment = &tAilment
 		}
 
 		var ailmentChance *int = nil
-		if tailChnc, ok := meta["ailment_chance"].(int); ok {
-			ailmentChance = &tailChnc
+		if tAilChnc, ok := meta["ailment_chance"].(int); ok {
+			ailmentChance = &tAilChnc
 		}
 
-		detailed = append(detailed, moveData{
+		var moveCategory *string = nil
+		if tMovCat, ok := meta["category"].(dict)["name"].(string); ok {
+			moveCategory = &tMovCat
+		}
+
+		var healing *int = nil
+		if tHealing, ok := meta["healing"].(int); ok {
+			healing = &tHealing
+		}
+
+		var drain *int = nil
+		if tDrain, ok := meta["drain"].(int); ok {
+			drain = &tDrain
+		}
+
+		detailed = append(detailed, MoveData{
 			Name:          move.name,
 			LevelLearned:  uint(move.level),
 			LearnMethod:   move.method,
@@ -256,42 +283,44 @@ func getMovesData(pokeData dict) ([]moveData, error) {
 			DamageClass:   dc,
 			Ailment:       ailment,
 			AilmentChance: ailmentChance,
-			// Move_category:  meta["category"].(dict)["name"].(string),
-			// Healing:        meta["healing"].(int),
-			// Drain:          meta["drain"].(int),
-			StatChanges: []statChange{}, // TODO: fix later
+			MoveCategory:  moveCategory,
+			Healing:       healing,
+			Drain:         drain,
+			StatChanges:   statChanges,
 		})
 	}
-	return detailed, nil
+	return Ok(detailed)
 }
 
-func getPokemonTypes(data dict) (string, *string) {
+func getPokemonTypes(data dict) (string, *string, error) {
 	var type1 string
 	var type2 *string
 	for _, t := range data["types"].([]any) {
 		tm := t.(dict)
-		slot := int(tm["slot"].(float64))
-		tmpVar := tm["type"].(dict)["name"].(string)
-		var name *string = nil
-		if tmpVar != "" {
-			name = &tmpVar
+		fSlot, ok := tm["slot"].(float64)
+		if !ok || fSlot != 0 {
+			return "", nil, errors.New("Couldn't load data['type']['slot'] ")
+		}
+		var name string
+		if name, ok = tm["type"].(dict)["name"].(string); !ok || name == "" {
+			return "", nil, errors.New("Couldn't load data['type']['name'] ")
 		}
 
+		slot := int(fSlot)
 		switch slot {
 		case 1:
-			// type_1 should always be there, so normal string works
-			type1 = *name
+			type1 = name
 		case 2:
-			// type_2 can be null, so this should be a pointer
-			type2 = name
+			type2 = &name
 		default:
-			// TODO: ? pass ?
+			return "", nil, fmt.Errorf("Unknown type slot number found:%d\n", slot)
 		}
+
 	}
-	return type1, type2
+	return type1, type2, nil
 }
 
-func getStats(data dict) *statsData {
+func getStats(data dict) *StatsData {
 	stats := make(map[string]int)
 	for _, v := range data["stats"].([]any) {
 		tm := v.(dict)
@@ -299,7 +328,8 @@ func getStats(data dict) *statsData {
 		baseStat := int(tm["base_stat"].(float64))
 		stats[name] = baseStat
 	}
-	return &statsData{
+
+	return &StatsData{
 		Attack:         stats["attack"],
 		Defense:        stats["defense"],
 		Hp:             stats["hp"],

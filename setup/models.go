@@ -1,21 +1,20 @@
 package setup
 
 type (
-	fullPokeData struct {
+	FullPokeData struct {
 		Id             uint
 		Name           string
 		Type1          string
 		Type2          *string // nullable
 		BaseExperience int
-		Stats          statsData
-		Moves          []moveData
-		NextEvolutions []nextEvoData
+		Stats          StatsData
+		Moves          []MoveData
+		NextEvolutions []NextEvoData
 		GrowthRate     *string // nullable
-		FrontSprite    []byte
-		BackSprite     []byte
+		Sprites
 	}
 
-	statsData struct {
+	StatsData struct {
 		Attack         int
 		Defense        int
 		Hp             int
@@ -24,7 +23,7 @@ type (
 		Speed          int
 	}
 
-	moveData struct {
+	MoveData struct {
 		Name          string
 		LevelLearned  uint
 		LearnMethod   string
@@ -38,20 +37,24 @@ type (
 		MoveCategory  *string      // nullable
 		Healing       *int         // nullable
 		Drain         *int         // nullable
-		StatChanges   []statChange // TODO: maybe nullable?
+		StatChanges   []StatChange // TODO: maybe nullable?
 
 	}
 
-	statChange struct {
+	StatChange struct {
 		Stat   string
 		Change any // TODO: check type
 	}
 
-	nextEvoData struct {
+	NextEvoData struct {
 		EvolvesIntoId uint
 		Trigger       string
 		MinLevel      uint
 		Item          *string // nullable
+	}
+
+	Sprites struct {
+		front, back []byte
 	}
 
 	_mvIR struct {
