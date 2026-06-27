@@ -9,6 +9,8 @@ import (
 	"go-pokebattle/dex"
 	"go-pokebattle/setup"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 	"gorm.io/gorm"
 )
 
@@ -30,13 +32,13 @@ func printErrExit(err error) {
 }
 
 func main() {
-	// * Catch all panics!
-	defer func() {
-		r := recover()
-		if r == nil {
-			return
-		}
-	}()
+	// // * Catch all panics!
+	// defer func() {
+	// 	r := recover()
+	// 	if r == nil {
+	// 		return
+	// 	}
+	// }()
 
 	// * Get and or Create Gorm/Sqlite DB
 	dbPath := "pokedata.db"
@@ -70,7 +72,12 @@ func main() {
 
 	// * Print Pokemons
 	for _, k := range pokedex {
-		fmt.Printf("Pokemon Id: %d Name: %s Type: %s\n", k.ID, k.Name, k.Type1)
+		var type2 string = "<nil>"
+		if k.Type2 != nil {
+			type2 = *k.Type2
+		}
+		titleName := cases.Title(language.Und, cases.NoLower).String(k.Name)
+		fmt.Printf("Pokemon #%d, %s.  types: %s %s\n", k.ID, titleName, k.Type1, type2)
 	}
 
 	// // * Get all moves from db

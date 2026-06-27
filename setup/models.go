@@ -28,7 +28,7 @@ type (
 		MoveCategory  *string      // nullable
 		Healing       *int         // nullable
 		Drain         *int         // nullable
-		StatChanges   []statChange // TODO: maybe nullable?
+		StatChanges   []statChange // TODO: maybe nullable? wait, is this used?
 
 	}
 
