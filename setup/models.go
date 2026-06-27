@@ -1,26 +1,17 @@
 package setup
 
 type (
-	FullPokeData struct {
+	PokeApiData struct {
 		Id             uint
 		Name           string
 		Type1          string
 		Type2          *string // nullable
-		BaseExperience int
-		Stats          StatsData
+		BaseExperience *int    // nullable
 		Moves          []MoveData
-		NextEvolutions []NextEvoData
+		NextEvolutions []nextEvoData
 		GrowthRate     *string // nullable
-		Sprites
-	}
-
-	StatsData struct {
-		Attack         int
-		Defense        int
-		Hp             int
-		SpecialAttack  int
-		SpecialDefense int
-		Speed          int
+		Sprites        sprites
+		stats
 	}
 
 	MoveData struct {
@@ -37,23 +28,32 @@ type (
 		MoveCategory  *string      // nullable
 		Healing       *int         // nullable
 		Drain         *int         // nullable
-		StatChanges   []StatChange // TODO: maybe nullable?
+		StatChanges   []statChange // TODO: maybe nullable?
 
 	}
 
-	StatChange struct {
+	stats struct {
+		Attack         int
+		Defense        int
+		Hp             int
+		SpecialAttack  int
+		SpecialDefense int
+		Speed          int
+	}
+
+	statChange struct {
 		Stat   string
 		Change any // TODO: check type
 	}
 
-	NextEvoData struct {
+	nextEvoData struct {
 		EvolvesIntoId uint
 		Trigger       string
 		MinLevel      uint
 		Item          *string // nullable
 	}
 
-	Sprites struct {
+	sprites struct {
 		front, back []byte
 	}
 

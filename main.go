@@ -44,10 +44,10 @@ func main() {
 	if exists, err := dbPathExists(dbPath); err != nil {
 		printErrExit(fmt.Errorf("Error occured checking for sqlite file: %v\n", err))
 	} else if !exists {
+		// data := setup.FetchPokemonData()
+		// fmt.Println("Length of pokemon data from api:", len(data))
 		// * Fetch Data From PokeAPI, Create SQLite DB, seeded with API Data
-		data := setup.FetchPokemonData()
-		fmt.Println("Length of pokemon data from api:", len(data))
-		db, err = setup.CreateSqliteDb(data, dbPath)
+		db, err = setup.FetchDataAndCreateDB(dbPath)
 		if err != nil {
 			printErrExit(fmt.Errorf("Something failed creating pokemon db: %+v\n", err))
 		}

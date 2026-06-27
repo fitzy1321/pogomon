@@ -4,7 +4,7 @@ package dex
 
 type (
 	Pokemon struct {
-		ID             int    `gorm:"primaryKey;autoIncrement:false"`
+		ID             uint   `gorm:"primaryKey;autoIncrement:false"`
 		Name           string `gorm:"uniqueIndex;not null"`
 		Type1          string `gorm:"not null"`
 		Type2          *string
@@ -24,7 +24,7 @@ type (
 	}
 
 	Move struct {
-		ID            int    `gorm:"primaryKey;autoIncrement"`
+		ID            uint   `gorm:"primaryKey;autoIncrement"`
 		Name          string `gorm:"uniqueIndex;not null"`
 		Power         *int
 		Accuracy      *int
@@ -39,10 +39,10 @@ type (
 	}
 
 	PokemonMove struct {
-		ID           int `gorm:"primaryKey;autoIncrement"`
-		PokemonID    int `gorm:"uniqueIndex:idx_pokemon_move;not null"`
-		MoveID       int `gorm:"uniqueIndex:idx_pokemon_move;not null"`
-		LevelLearned int `gorm:"not null"`
+		ID           uint `gorm:"primaryKey;autoIncrement"`
+		PokemonID    uint `gorm:"uniqueIndex:idx_pokemon_move;not null"`
+		MoveID       uint `gorm:"uniqueIndex:idx_pokemon_move;not null"`
+		LevelLearned int  `gorm:"not null"`
 		LearnMethod  *string
 
 		Pokemon Pokemon `gorm:"foreignKey:PokemonID"`
@@ -50,9 +50,9 @@ type (
 	}
 
 	Evolution struct {
-		ID             int `gorm:"primaryKey;autoIncrement"`
-		PokemonID      int `gorm:"uniqueIndex:idx_evolution;not null"`
-		EvolvesIntoID  int `gorm:"uniqueIndex:idx_evolution;not null"`
+		ID             uint `gorm:"primaryKey;autoIncrement"`
+		PokemonID      uint `gorm:"uniqueIndex:idx_evolution;not null"`
+		EvolvesIntoID  uint `gorm:"uniqueIndex:idx_evolution;not null"`
 		Trigger        *string
 		MinLevel       *int
 		Item           *string

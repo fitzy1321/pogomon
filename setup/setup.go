@@ -12,6 +12,7 @@ import (
 	. "go-pokebattle/result"
 
 	mapset "github.com/deckarep/golang-set/v2"
+	"gorm.io/gorm"
 )
 
 const (
@@ -24,9 +25,17 @@ type (
 	dict = map[string]any
 )
 
-func FetchPokemonData() []FullPokeData {
-	fullApiData := make([]FullPokeData, 0, GEN1POKEMONCOUNT)
-	dataCh := make(chan Result[FullPokeData], GEN1POKEMONCOUNT)
+func FetchDataAndCreateDB(dbPath string) (*gorm.DB, error) {
+	data := FetchPokemonData()
+	if len(data) == 0 {
+		return nil, errors.New("Failed to fetch data from PokeAPI")
+	}
+	return CreateSqliteDb(data, dbPath)
+}
+
+func FetchPokemonData() []PokeApiData {
+	fullApiData := make([]PokeApiData, 0, GEN1POKEMONCOUNT)
+	dataCh := make(chan Result[PokeApiData], GEN1POKEMONCOUNT)
 	sema := make(chan struct{}, 20) // cap amount of goroutines running at once
 
 	wg := sync.WaitGroup{}
@@ -54,28 +63,28 @@ func FetchPokemonData() []FullPokeData {
 	return fullApiData
 }
 
-func rawApiDataToStructs(pokeId uint) Result[FullPokeData] {
+func rawApiDataToStructs(pokeId uint) Result[PokeApiData] {
 	url := fmt.Sprintf("%s/pokemon/%d", BASEURL, pokeId)
 
 	pokemap, err := fetchPokeAPIData(url)
 	if err != nil {
-		return Err[FullPokeData](err)
+		return Err[PokeApiData](err)
 	}
 
 	type1, type2, err := getPokemonTypes(pokemap)
 	if err != nil {
-		return Err[FullPokeData](err)
+		return Err[PokeApiData](err)
 	}
 
-	stats, err := getStats(pokemap)
+	mStats, err := getStats(pokemap)
 	if err != nil {
-		return Err[FullPokeData](err)
-	} else if stats == nil {
-		stats = &StatsData{}
+		return Err[PokeApiData](err)
+	} else if mStats == nil {
+		mStats = &stats{}
 	}
 
 	moveCh := make(chan Result[[]MoveData], 1)
-	spriteCh := make(chan Result[Sprites], 1)
+	spriteCh := make(chan Result[sprites], 1)
 	grCh := make(chan Result[*string], 1)
 
 	go func() {
@@ -105,26 +114,27 @@ func rawApiDataToStructs(pokeId uint) Result[FullPokeData] {
 
 	moveRes := <-moveCh
 	if moveRes.IsErr() {
-		return Err[FullPokeData](moveRes.GetError())
+		return Err[PokeApiData](moveRes.GetError())
 	}
 	grRes := <-grCh
 	if grRes.IsErr() {
-		return Err[FullPokeData](grRes.GetError())
+		return Err[PokeApiData](grRes.GetError())
 	}
 	spriteRes := <-spriteCh
 	if spriteRes.IsErr() {
-		return Err[FullPokeData](spriteRes.GetError())
+		return Err[PokeApiData](spriteRes.GetError())
 	}
 
-	return Ok(FullPokeData{
+	baseExp := int(pokemap["base_experience"].(float64))
+	return Ok(PokeApiData{
 		Id:             pokeId,
 		Name:           pokemap["name"].(string),
 		Type1:          type1,
 		Type2:          type2,
-		BaseExperience: int(pokemap["base_experience"].(float64)),
-		Stats:          *stats,
+		BaseExperience: &baseExp,
+		stats:          *mStats,
 		Moves:          moveRes.Value,
-		NextEvolutions: []NextEvoData{}, // TODO: fix later
+		NextEvolutions: []nextEvoData{}, // TODO: fix later
 		GrowthRate:     grRes.Value,
 		Sprites:        spriteRes.Value,
 	})
@@ -144,7 +154,7 @@ func fetchPokeAPIData(url string) (dict, error) {
 	return data, nil
 }
 
-func getSprites(pokeId uint) Result[Sprites] {
+func getSprites(pokeId uint) Result[sprites] {
 	frontUrl := fmt.Sprintf("%s/%d.png", SPRITEURLBASE, pokeId)
 	backUrl := fmt.Sprintf("%s/back/%d.png", SPRITEURLBASE, pokeId)
 
@@ -157,26 +167,26 @@ func getSprites(pokeId uint) Result[Sprites] {
 
 	ftResp, err := http.Get(frontUrl)
 	if err != nil {
-		return Err[Sprites](err)
+		return Err[sprites](err)
 	}
 	defer ftResp.Body.Close()
 
 	ftSprite, err := sprHandler(ftResp)
 	if err != nil {
-		return Err[Sprites](err)
+		return Err[sprites](err)
 	}
 
 	bkResp, err := http.Get(backUrl)
 	if err != nil {
-		return Err[Sprites](err)
+		return Err[sprites](err)
 	}
 	defer bkResp.Body.Close()
 
 	bkSprite, err := sprHandler(bkResp)
 	if err != nil {
-		return Err[Sprites](err)
+		return Err[sprites](err)
 	}
-	return Ok(Sprites{ftSprite, bkSprite})
+	return Ok(sprites{ftSprite, bkSprite})
 }
 
 func getMovesData(pokeData dict) Result[[]MoveData] {
@@ -224,7 +234,7 @@ func getMovesData(pokeData dict) Result[[]MoveData] {
 		}
 
 		// TODO: implement []statChange data
-		statChanges := []StatChange{}
+		statChanges := []statChange{}
 
 		var power *int = nil
 		if tp, ok := mvData["power"].(int); ok {
@@ -323,8 +333,8 @@ func getPokemonTypes(data dict) (string, *string, error) {
 	return type1, type2, nil
 }
 
-func getStats(data dict) (*StatsData, error) {
-	stats := make(map[string]int)
+func getStats(data dict) (*stats, error) {
+	mStats := make(map[string]int)
 	for _, v := range data["stats"].([]any) {
 		tm := v.(dict)
 		name, ok := tm["stat"].(dict)["name"].(string)
@@ -336,16 +346,16 @@ func getStats(data dict) (*StatsData, error) {
 			return nil, errors.New("Coudn't load data[\"stats\"][\"base_stat\"]")
 		}
 		baseStat := int(t)
-		stats[name] = baseStat
+		mStats[name] = baseStat
 	}
 
-	return &StatsData{
-		Attack:         stats["attack"],
-		Defense:        stats["defense"],
-		Hp:             stats["hp"],
-		SpecialAttack:  stats["special-attack"],
-		SpecialDefense: stats["special-defense"],
-		Speed:          stats["speed"],
+	return &stats{
+		Attack:         mStats["attack"],
+		Defense:        mStats["defense"],
+		Hp:             mStats["hp"],
+		SpecialAttack:  mStats["special-attack"],
+		SpecialDefense: mStats["special-defense"],
+		Speed:          mStats["speed"],
 	}, nil
 }
 
