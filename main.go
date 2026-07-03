@@ -1,9 +1,7 @@
 package main
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 
 	"go-pokebattle/dex"
@@ -13,18 +11,6 @@ import (
 	"golang.org/x/text/language"
 	"gorm.io/gorm"
 )
-
-func dbPathExists(path string) (bool, error) {
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return false, nil
-	} else if errors.Is(err, fs.ErrNotExist) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-
-	return true, nil
-}
 
 func printErrExit(err error) {
 	fmt.Fprintf(os.Stderr, "%+v", err)
@@ -43,20 +29,33 @@ func main() {
 	// * Get and or Create Gorm/Sqlite DB
 	dbPath := "pokedata.db"
 	var db *gorm.DB = nil
-	if exists, err := dbPathExists(dbPath); err != nil {
-		printErrExit(fmt.Errorf("Error occured checking for sqlite file: %v\n", err))
-	} else if !exists {
+	var err error = nil
+
+	if !setup.FileExists(dbPath) {
 		// data := setup.FetchPokemonData()
 		// fmt.Println("Length of pokemon data from api:", len(data))
 		// * Fetch Data From PokeAPI, Create SQLite DB, seeded with API Data
-		var errs []error
-		db, errs = setup.FetchDataAndCreateDB(dbPath)
+		data, errs := setup.FetchPokemonData()
 		if errs != nil || len(errs) != 0 {
 			for _, e := range errs {
 				fmt.Fprintf(os.Stderr, "%+v", fmt.Errorf("Something failed creating pokemon db: %+v\n", e))
 			}
 			os.Exit(1)
 		}
+		if err := setup.SaveGobFile(data, setup.CACHEFILE); err != nil {
+			printErrExit(err)
+		}
+		db, err = setup.CreateAndSeedDB(data, dbPath)
+		if err != nil {
+			printErrExit(err)
+		}
+		// db, errs = setup.FetchDataAndCreateDB(dbPath)
+		// if errs != nil || len(errs) != 0 {
+		// 	for _, e := range errs {
+		// 		fmt.Fprintf(os.Stderr, "%+v", fmt.Errorf("Something failed creating pokemon db: %+v\n", e))
+		// 	}
+		// 	os.Exit(1)
+		// }
 		// * Wait for terminal input
 		fmt.Print("> ")
 		fmt.Scanln()
