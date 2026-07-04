@@ -31,10 +31,10 @@ type (
 		Type2          *string // nullable
 		BaseExperience *int    // nullable
 		Moves          []MoveData
-		NextEvolutions []nextEvoData
+		NextEvolutions []NextEvoData
 		GrowthRate     *string // nullable
-		Sprites        sprites
-		stats
+		Sprites        Sprites
+		PokemonStats
 	}
 
 	MoveData struct {
@@ -56,7 +56,7 @@ type (
 
 	}
 
-	stats struct {
+	PokemonStats struct {
 		Attack    int
 		Defense   int
 		HP        int
@@ -70,15 +70,15 @@ type (
 		Change any // TODO: check type
 	}
 
-	nextEvoData struct {
+	NextEvoData struct {
 		EvolvesIntoId uint
 		Trigger       string
 		MinLevel      uint
 		Item          *string // nullable
 	}
 
-	sprites struct {
-		front, back []byte
+	Sprites struct {
+		Front, Back []byte
 	}
 
 	_mvIR struct {
@@ -119,7 +119,7 @@ func FetchDataAndCreateDB(dbPath string, options fnOpts) (*gorm.DB, []error) {
 		if options.SaveToCacheFile {
 			err := SaveGobFile(data, CACHEFILE)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error occurred saving cache gob file: %+v", err)
+				fmt.Fprintf(os.Stderr, "Error occurred saving cache gob file: %+v\n", err)
 			}
 		}
 	}
@@ -218,8 +218,8 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 			Speed:          pitem.Speed,
 			BaseExperience: pitem.BaseExperience,
 			GrowthRate:     pitem.GrowthRate,
-			FrontSprite:    pitem.Sprites.front,
-			BackSprite:     pitem.Sprites.back,
+			FrontSprite:    pitem.Sprites.Front,
+			BackSprite:     pitem.Sprites.Back,
 		})
 		for _, mitem := range pitem.Moves {
 			if !moveIdSet.Contains(mitem.Id) {

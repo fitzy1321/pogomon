@@ -36,7 +36,7 @@ func initModel(dex []dex.Pokemon) Model {
 }
 
 func printErrExit(err error) {
-	fmt.Fprintf(os.Stderr, "%+v", err)
+	fmt.Fprintf(os.Stderr, "Error:: %+v\n", err)
 	os.Exit(1)
 }
 
@@ -65,7 +65,7 @@ func main() {
 		data, errs := setup.FetchPokemonData()
 		if errs != nil || len(errs) != 0 {
 			for _, e := range errs {
-				fmt.Fprintf(os.Stderr, "%+v", fmt.Errorf("Something failed creating pokemon db: %+v\n", e))
+				fmt.Fprintf(os.Stderr, "%+v\n", fmt.Errorf("Something failed creating pokemon db: %+v\n", e))
 			}
 			os.Exit(1)
 		}

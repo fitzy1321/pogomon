@@ -29,11 +29,11 @@ func rawApiDataToStructs(pokeId uint) Result[PokeApiData] {
 	if err != nil {
 		return Err[PokeApiData](err)
 	} else if mStats == nil {
-		mStats = &stats{}
+		mStats = &PokemonStats{}
 	}
 
 	moveCh := make(chan Result[[]MoveData], 1)
-	spriteCh := make(chan Result[sprites], 1)
+	spriteCh := make(chan Result[Sprites], 1)
 	grCh := make(chan Result[*string], 1)
 
 	go func() {
@@ -86,9 +86,9 @@ func rawApiDataToStructs(pokeId uint) Result[PokeApiData] {
 		Type1:          type1,
 		Type2:          type2,
 		BaseExperience: &baseExp,
-		stats:          *mStats,
+		PokemonStats:   *mStats,
 		Moves:          move,
-		NextEvolutions: []nextEvoData{}, // TODO: fix later
+		NextEvolutions: []NextEvoData{}, // TODO: fix later
 		GrowthRate:     growthRate,
 		Sprites:        sprites,
 	})
@@ -108,7 +108,7 @@ func fetchPokeAPIData(url string) (dict, error) {
 	return data, nil
 }
 
-func getSprites(pokeId uint) Result[sprites] {
+func getSprites(pokeId uint) Result[Sprites] {
 	frontUrl := fmt.Sprintf("%s/%d.png", SPRITEURLBASE, pokeId)
 	backUrl := fmt.Sprintf("%s/back/%d.png", SPRITEURLBASE, pokeId)
 
@@ -121,26 +121,26 @@ func getSprites(pokeId uint) Result[sprites] {
 
 	ftResp, err := http.Get(frontUrl)
 	if err != nil {
-		return Err[sprites](err)
+		return Err[Sprites](err)
 	}
 	defer ftResp.Body.Close()
 
 	ftSprite, err := sprHandler(ftResp)
 	if err != nil {
-		return Err[sprites](err)
+		return Err[Sprites](err)
 	}
 
 	bkResp, err := http.Get(backUrl)
 	if err != nil {
-		return Err[sprites](err)
+		return Err[Sprites](err)
 	}
 	defer bkResp.Body.Close()
 
 	bkSprite, err := sprHandler(bkResp)
 	if err != nil {
-		return Err[sprites](err)
+		return Err[Sprites](err)
 	}
-	return Ok(sprites{ftSprite, bkSprite})
+	return Ok(Sprites{ftSprite, bkSprite})
 }
 
 func getMovesData(pokeData dict) Result[[]MoveData] {
@@ -295,7 +295,7 @@ func getPokemonTypes(data dict) (string, *string, error) {
 	return type1, type2, nil
 }
 
-func getStats(data dict) (*stats, error) {
+func getStats(data dict) (*PokemonStats, error) {
 	mStats := make(map[string]int)
 	for _, v := range data["stats"].([]any) {
 		tm := v.(dict)
@@ -311,7 +311,7 @@ func getStats(data dict) (*stats, error) {
 		mStats[name] = baseStat
 	}
 
-	return &stats{
+	return &PokemonStats{
 		Attack:    mStats["attack"],
 		Defense:   mStats["defense"],
 		HP:        mStats["hp"],
