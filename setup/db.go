@@ -55,7 +55,7 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 
 	for _, pitem := range apiData {
 		pokemon = append(pokemon, dex.Pokemon{
-			ID:             pitem.Id,
+			ID:             pitem.ID,
 			Name:           pitem.Name,
 			Type1:          pitem.Type1,
 			Type2:          pitem.Type2,
@@ -71,10 +71,10 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 			BackSprite:     pitem.Sprites.Back,
 		})
 		for _, mitem := range pitem.Moves {
-			if !moveIdSet.Contains(mitem.Id) {
-				moveIdSet.Add(mitem.Id)
+			if !moveIdSet.Contains(mitem.ID) {
+				moveIdSet.Add(mitem.ID)
 				moves = append(moves, dex.Move{
-					ID:            mitem.Id,
+					ID:            mitem.ID,
 					Name:          mitem.Name,
 					Power:         mitem.Power,
 					Accuracy:      mitem.Accuracy,
@@ -89,8 +89,8 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 				})
 			}
 			pokemonMoves = append(pokemonMoves, dex.PokemonMove{
-				PokemonID:    pitem.Id,
-				MoveID:       mitem.Id,
+				PokemonID:    pitem.ID,
+				MoveID:       mitem.ID,
 				LevelLearned: mitem.LevelLearned,
 				LearnMethod:  mitem.LearnMethod,
 			})

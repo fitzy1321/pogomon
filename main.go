@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 
 	. "go-pokebattle/dex"
@@ -53,7 +54,7 @@ func main() {
 		// data := setup.FetchPokemonData()
 		// fmt.Println("Length of pokemon data from api:", len(data))
 		// * Fetch Data From PokeAPI, Create SQLite DB, seeded with API Data
-		data, errs := setup.FetchPokemonData(nil)
+		data, errs := setup.FetchPokemonData(http.DefaultClient)
 		if errs != nil || len(errs) != 0 {
 			for _, e := range errs {
 				fmt.Fprintf(os.Stderr, "%+v\n", fmt.Errorf("Something failed creating pokemon db: %+v\n", e))

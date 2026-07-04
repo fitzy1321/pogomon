@@ -13,82 +13,17 @@ import (
 )
 
 const (
-	BASEURL          string = "https://pokeapi.co/api/v2"
-	CACHEFILE        string = "POKEDATA_CACHE.gob"
-	FOREIGNKEYSTR    string = "?_foreign_keys=on"
-	GEN1POKEMONCOUNT int    = 151
-	SPRITEURLBASE    string = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-i/red-blue/transparent"
+	BASEURL             string = "https://pokeapi.co/api/v2"
+	CACHEFILE           string = "POKEDATA_CACHE.gob"
+	FOREIGNKEYSTR       string = "?_foreign_keys=on"
+	GEN1POKEMONCOUNT    int    = 151
+	SPRITEURLBASE       string = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-i/red-blue/transparent"
+	TradeEvolutionLevel uint   = 32
 )
 
 type (
-	PokeApiData struct {
-		Id             uint
-		Name           string
-		Type1          string
-		Type2          *string // nullable
-		BaseExperience *int    // nullable
-		Moves          []MoveData
-		NextEvolutions []NextEvoData
-		GrowthRate     *string // nullable
-		Sprites        Sprites
-		PokemonStats
-	}
-
-	MoveData struct {
-		Id            uint
-		Name          string
-		LevelLearned  int
-		LearnMethod   *string
-		MaxPP         int
-		Power         *int         // nullable
-		Accuracy      *int         // nullable
-		Type          *string      // TODO: should this be nullable?
-		DamageClass   *string      // nullable
-		Ailment       *string      // nullable
-		AilmentChance *int         // nullable
-		MoveCategory  *string      // nullable
-		Healing       *int         // nullable
-		Drain         *int         // nullable
-		StatChanges   []statChange // TODO: maybe nullable? wait, is this used?
-
-	}
-
-	PokemonStats struct {
-		Attack    int
-		Defense   int
-		HP        int
-		SpAttack  int
-		SpDefense int
-		Speed     int
-	}
-
-	statChange struct {
-		Stat   string
-		Change any // TODO: check type
-	}
-
-	NextEvoData struct {
-		EvolvesIntoId uint
-		Trigger       string
-		MinLevel      uint
-		Item          *string // nullable
-	}
-
-	Sprites struct {
-		Front, Back []byte
-	}
-
-	_mvIR struct {
-		name   string
-		level  int
-		url    string
-		method string
-	}
-)
-
-type (
-	dict         = map[string]any
-	FetchOptions struct {
+	dict           = map[string]any
+	FetchFnOptions struct {
 		LoadFromCacheFile bool
 		SaveToCacheFile   bool
 		Client            *http.Client
@@ -96,7 +31,7 @@ type (
 )
 
 // Call PokeAPI and etl into Sqlite tables
-func FetchDataAndCreateDB(dbPath string, fOpts FetchOptions) (*gorm.DB, []error) {
+func FetchDataAndCreateDB(dbPath string, fOpts FetchFnOptions) (*gorm.DB, []error) {
 	var data []PokeApiData
 	if fOpts.LoadFromCacheFile {
 		if FileExists(CACHEFILE) {
@@ -133,10 +68,6 @@ func FetchDataAndCreateDB(dbPath string, fOpts FetchOptions) (*gorm.DB, []error)
 }
 
 func FetchPokemonData(client *http.Client) ([]PokeApiData, []error) {
-	if client == nil {
-		client = http.DefaultClient
-	}
-
 	fullApiData := make([]PokeApiData, 0, GEN1POKEMONCOUNT)
 	dataCh := make(chan Result[PokeApiData], GEN1POKEMONCOUNT)
 	sema := make(chan struct{}, 20) // to cap # goroutines running
@@ -157,7 +88,7 @@ func FetchPokemonData(client *http.Client) ([]PokeApiData, []error) {
 	for r := range dataCh {
 		if r.IsOk() {
 			fullApiData = append(fullApiData, r.Value)
-			fmt.Printf("Pokemon #%d, %s\n", r.Value.Id, r.Value.Name)
+			fmt.Printf("Pokemon #%d, %s, %+v, \n", r.Value.ID, r.Value.Name, r.Value.NextEvolutions)
 			// fmt.Printf("%+v\n", r)
 		} else {
 			errs = append(errs, r.Error)
@@ -166,33 +97,3 @@ func FetchPokemonData(client *http.Client) ([]PokeApiData, []error) {
 
 	return fullApiData, errs
 }
-
-// TODO: Keep or delete this func?
-// func osLevelStuff() error {
-// 	home_path, ok := os.LookupEnv("HOME")
-// 	if !ok {
-// 		return fmt.Errorf("No Home ENV, something is wrong ...\n")
-
-// 	}
-// 	fmt.Println("Home path:", home_path)
-
-// 	xdg_data := os.Getenv("XDG_DATA_HOME")
-// 	fmt.Println("idk if this is real? :", xdg_data)
-
-// 	xdg_config := os.Getenv("XDG_CONFIG_HOME")
-// 	fmt.Println("XDG_CONFIG_HOME:", xdg_config)
-
-// 	osname := runtime.GOOS
-// 	switch osname {
-// 	case "windows":
-// 		fmt.Println("Windows specific stuff")
-// 	case "darwin":
-// 		fmt.Println("MacOS stuff")
-// 	case "linux":
-// 		fmt.Println("linux stuff")
-// 	default:
-// 		fmt.Println("I have no idea what you're on ...")
-// 	}
-
-// 	return nil
-// }

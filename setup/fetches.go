@@ -13,17 +13,82 @@ import (
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
-func topLevelPokemonData(client *http.Client, pokeId uint) Result[PokeApiData] {
-	if client == nil {
-		client = http.DefaultClient
+type (
+	PokeApiData struct {
+		ID             uint
+		Name           string
+		Type1          string
+		Type2          *string // nullable
+		BaseExperience *int    // nullable
+		Moves          []MoveData
+		NextEvolutions []NextEvoData
+		GrowthRate     *string // nullable
+		Sprites        Sprites
+		PokemonStats
 	}
 
-	url := fmt.Sprintf("%s/pokemon/%d", BASEURL, pokeId)
+	MoveData struct {
+		ID            uint
+		Name          string
+		LevelLearned  int
+		LearnMethod   *string
+		MaxPP         int
+		Power         *int         // nullable
+		Accuracy      *int         // nullable
+		Type          *string      // TODO: should this be nullable?
+		DamageClass   *string      // nullable
+		Ailment       *string      // nullable
+		AilmentChance *int         // nullable
+		MoveCategory  *string      // nullable
+		Healing       *int         // nullable
+		Drain         *int         // nullable
+		StatChanges   []statChange // TODO: maybe nullable? wait, is this used?
 
-	pokemap, err := getPokeAPIData(client, url)
+	}
+
+	PokemonStats struct {
+		Attack    int
+		Defense   int
+		HP        int
+		SpAttack  int
+		SpDefense int
+		Speed     int
+	}
+
+	statChange struct {
+		Stat   string
+		Change any // TODO: check type
+	}
+
+	NextEvoData struct {
+		EvolvesIntoID uint
+		EvolvesInto   string
+		Trigger       string
+		MinLevel      uint
+		Item          *string // nullable
+	}
+
+	Sprites struct {
+		Front, Back []byte
+	}
+
+	_mvIR struct {
+		name   string
+		level  int
+		url    string
+		method string
+	}
+)
+
+func topLevelPokemonData(client *http.Client, pokemonId uint) Result[PokeApiData] {
+	url := fmt.Sprintf("%s/pokemon/%d", BASEURL, pokemonId)
+
+	pokemap, err := networkHandler(client, url)
 	if err != nil {
 		return Err[PokeApiData](err)
 	}
+
+	name := pokemap["name"].(string)
 
 	type1, type2, err := parsePTypes(pokemap)
 	if err != nil {
@@ -39,6 +104,7 @@ func topLevelPokemonData(client *http.Client, pokeId uint) Result[PokeApiData] {
 
 	moveCh := make(chan Result[[]MoveData], 1)
 	spriteCh := make(chan Result[Sprites], 1)
+	evoCh := make(chan Result[[]NextEvoData], 1)
 	grCh := make(chan Result[*string], 1)
 
 	go func() {
@@ -46,106 +112,84 @@ func topLevelPokemonData(client *http.Client, pokeId uint) Result[PokeApiData] {
 	}()
 
 	go func() {
-		spriteCh <- getSprites(client, pokeId)
+		spriteCh <- getSprites(client, pokemonId)
 	}()
 
 	go func() {
 		if speciesUrl, ok := pokemap["species"].(dict)["url"].(string); ok {
-			speciesData, err := getPokeAPIData(client, speciesUrl)
+			speciesData, err := networkHandler(client, speciesUrl)
 			if err != nil {
 				grCh <- Err[*string](err)
+				evoCh <- Err[[]NextEvoData](err)
 				return
 			}
+
+			go func() { evoCh <- Wrap(getEvoData(client, speciesData, name)) }()
+
 			grstr, ok := speciesData["growth_rate"].(dict)["name"].(string)
 			if !ok {
-				grCh <- ErrFromStr[*string](fmt.Sprintf("Pokemon Id: #%d Couldn't load speciesData[\"growth_rate\"][\"name\"]\n", pokeId))
+				grCh <- ErrFromStr[*string](fmt.Sprintf("Pokemon Id: #%d Couldn't load speciesData[\"growth_rate\"][\"name\"]\n", pokemonId))
 				return
 			}
 			grCh <- Ok(&grstr)
-			// TODO: Evolution Data
 		}
 	}()
 
 	moveRes := <-moveCh
-	if err := moveRes.Error; err != nil {
-		return Err[PokeApiData](err)
+	if moveRes.IsErr() {
+		return Err[PokeApiData](moveRes.Error)
 	}
-	move := moveRes.Value
-
-	grRes := <-grCh
-	if err := grRes.Error; err != nil {
-		return Err[PokeApiData](err)
-	}
-	growthRate := grRes.Value
 
 	spriteRes := <-spriteCh
-	if err := spriteRes.Error; err != nil {
-		return Err[PokeApiData](err)
+	if spriteRes.IsErr() {
+		return Err[PokeApiData](spriteRes.Error)
 	}
-	sprites := spriteRes.Value
+
+	grRes := <-grCh
+	if grRes.IsErr() {
+		return Err[PokeApiData](grRes.Error)
+	}
+
+	evoRes := <-evoCh
+	if evoRes.IsErr() {
+		return Err[PokeApiData](evoRes.Error)
+	}
 
 	baseExp := int(pokemap["base_experience"].(float64))
 	return Ok(PokeApiData{
-		Id:             pokeId,
-		Name:           pokemap["name"].(string),
+		ID:             pokemonId,
+		Name:           name,
 		Type1:          type1,
 		Type2:          type2,
 		BaseExperience: &baseExp,
 		PokemonStats:   *mStats,
-		Moves:          move,
-		NextEvolutions: []NextEvoData{}, // TODO: fix later
-		GrowthRate:     growthRate,
-		Sprites:        sprites,
+		Moves:          moveRes.Value,
+		NextEvolutions: evoRes.Value,
+		GrowthRate:     grRes.Value,
+		Sprites:        spriteRes.Value,
 	})
 }
 
-func getPokeAPIData(client *http.Client, url string) (dict, error) {
+func networkHandler(client *http.Client, url string) (dict, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
 	resp, err := client.Get(url)
 	if err != nil {
 		return dict{}, err
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("HTTP Status Code: %d. HTTP Status MSG: %s", resp.StatusCode, resp.Status)
+	}
+
 	var data dict
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return dict{}, err
 	}
 	return data, nil
-}
-
-func getSprites(client *http.Client, pokeId uint) Result[Sprites] {
-	frontUrl := fmt.Sprintf("%s/%d.png", SPRITEURLBASE, pokeId)
-	backUrl := fmt.Sprintf("%s/back/%d.png", SPRITEURLBASE, pokeId)
-
-	sprHandler := func(resp *http.Response) ([]byte, error) {
-		if resp.Header.Get("Content-Type") == "image/png" {
-			return io.ReadAll(resp.Body)
-		}
-		return nil, fmt.Errorf("Wrong Content-Type from network response.%v", resp.Header.Get("Content-Type"))
-	}
-
-	ftResp, err := client.Get(frontUrl)
-	if err != nil {
-		return Err[Sprites](err)
-	}
-	defer ftResp.Body.Close()
-
-	ftSprite, err := sprHandler(ftResp)
-	if err != nil {
-		return Err[Sprites](err)
-	}
-
-	bkResp, err := client.Get(backUrl)
-	if err != nil {
-		return Err[Sprites](err)
-	}
-	defer bkResp.Body.Close()
-
-	bkSprite, err := sprHandler(bkResp)
-	if err != nil {
-		return Err[Sprites](err)
-	}
-	return Ok(Sprites{ftSprite, bkSprite})
 }
 
 func getMovesData(client *http.Client, pokeData dict) Result[[]MoveData] {
@@ -182,7 +226,7 @@ func getMovesData(client *http.Client, pokeData dict) Result[[]MoveData] {
 
 	var detailed []MoveData
 	for _, move := range rbMoves {
-		mvData, err := getPokeAPIData(client, move.url)
+		mvData, err := networkHandler(client, move.url)
 		if err != nil {
 			// TODO: error handle, idk man ..
 		}
@@ -252,7 +296,7 @@ func getMovesData(client *http.Client, pokeData dict) Result[[]MoveData] {
 		}
 
 		detailed = append(detailed, MoveData{
-			Id:            moveId,
+			ID:            moveId,
 			Name:          move.name,
 			LevelLearned:  move.level,
 			LearnMethod:   &move.method,
@@ -272,6 +316,157 @@ func getMovesData(client *http.Client, pokeData dict) Result[[]MoveData] {
 	return Ok(detailed)
 }
 
+func getSprites(client *http.Client, pokeId uint) Result[Sprites] {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
+	frontUrl := fmt.Sprintf("%s/%d.png", SPRITEURLBASE, pokeId)
+	backUrl := fmt.Sprintf("%s/back/%d.png", SPRITEURLBASE, pokeId)
+
+	sprHandler := func(resp *http.Response) ([]byte, error) {
+		if resp.Header.Get("Content-Type") == "image/png" {
+			return io.ReadAll(resp.Body)
+		}
+		return nil, fmt.Errorf("Wrong Content-Type from network response.%v", resp.Header.Get("Content-Type"))
+	}
+
+	ftResp, err := client.Get(frontUrl)
+	if err != nil {
+		return Err[Sprites](err)
+	}
+	defer ftResp.Body.Close()
+
+	ftSprite, err := sprHandler(ftResp)
+	if err != nil {
+		return Err[Sprites](err)
+	}
+
+	bkResp, err := client.Get(backUrl)
+	if err != nil {
+		return Err[Sprites](err)
+	}
+	defer bkResp.Body.Close()
+
+	bkSprite, err := sprHandler(bkResp)
+	if err != nil {
+		return Err[Sprites](err)
+	}
+	return Ok(Sprites{ftSprite, bkSprite})
+}
+
+func buildEvoEntry(client *http.Client, nextNode map[string]any) (*NextEvoData, error) {
+	species := nextNode["species"].(dict)
+	nextName := species["name"].(string)
+
+	details := nextNode["evolution_details"].([]any)
+	var detail dict
+	if len(details) > 0 {
+		detail, _ = details[0].(dict)
+	}
+	if detail == nil {
+		detail = dict{}
+	}
+
+	var minLevel uint
+	if lvl, ok := detail["min_level"].(float64); ok {
+		minLevel = uint(lvl)
+	}
+
+	trigger := detail["trigger"].(dict)["name"].(string)
+
+	var item *string = nil
+	tmpItems, ok := detail["item"].(dict)
+	if ok {
+		tmpItem := tmpItems["name"].(string)
+		item = &tmpItem
+	}
+
+	if trigger == "trade" {
+		trigger = "level-up"
+		minLevel = TradeEvolutionLevel
+		item = nil
+	}
+
+	nextPokeData, err := networkHandler(client, fmt.Sprintf("%s/pokemon/%s/", BASEURL, nextName))
+	if err != nil {
+		return nil, err
+	}
+
+	nextID, ok := nextPokeData["id"].(float64)
+	if !ok || nextID == 0 || nextID > 151 {
+		return nil, nil
+	}
+
+	return &NextEvoData{
+		EvolvesIntoID: uint(nextID),
+		EvolvesInto:   nextName,
+		Trigger:       trigger,
+		MinLevel:      minLevel,
+		Item:          item,
+	}, nil
+}
+
+func evoWalk(client *http.Client, node dict, target string) ([]NextEvoData, error) {
+	species := node["species"].(dict)
+	evolvesTo := node["evolves_to"].([]any)
+
+	if speciesName, ok := species["name"]; ok && speciesName == target {
+		entries := make([]NextEvoData, 0, len(evolvesTo))
+		for _, childRaw := range evolvesTo {
+			child := childRaw.(dict)
+			entry, err := buildEvoEntry(client, child)
+			if err != nil {
+				return nil, err
+			}
+			if entry != nil {
+				entries = append(entries, *entry)
+			}
+		}
+		return entries, nil
+	}
+	for _, childRaw := range evolvesTo {
+		child, _ := childRaw.(dict)
+		result, err := evoWalk(client, child, target)
+		if err != nil {
+			return nil, err
+		}
+		if result != nil {
+			return result, nil
+		}
+	}
+	return nil, nil
+}
+
+func getEvoData(client *http.Client, speciesData dict, targetPokemonName string) ([]NextEvoData, error) {
+	evo_chain, ok := speciesData["evolution_chain"].(dict)
+	if !ok {
+		return nil, nil // TODO is this ok?
+	}
+	evoChainUrl, ok := evo_chain["url"].(string)
+	if !ok {
+		return nil, nil
+	}
+	chainData, err := networkHandler(client, evoChainUrl)
+	if err != nil {
+		return nil, err
+	}
+	if chainData == nil {
+		return nil, nil
+	}
+
+	result, err := evoWalk(client, chainData["chain"].(dict), targetPokemonName)
+	if err != nil {
+		return nil, err
+	}
+
+	if result == nil {
+		return []NextEvoData{}, nil
+	}
+
+	return result, nil
+}
+
 func parsePTypes(data dict) (string, *string, error) {
 	var type1 string
 	var type2 *string
@@ -285,8 +480,7 @@ func parsePTypes(data dict) (string, *string, error) {
 		if name, ok = tm["type"].(dict)["name"].(string); !ok || name == "" {
 			return "", nil, errors.New("Couldn't load data[\"types\"][\"type\"][\"name\"] ")
 		}
-
-		slot := int(fSlot)
+		slot := uint(fSlot)
 		switch slot {
 		case 1:
 			type1 = name
@@ -325,33 +519,3 @@ func parsePStats(data dict) (*PokemonStats, error) {
 		Speed:     mStats["speed"],
 	}, nil
 }
-
-// TODO: Keep or delete this func?
-// func osLevelStuff() error {
-// 	home_path, ok := os.LookupEnv("HOME")
-// 	if !ok {
-// 		return fmt.Errorf("No Home ENV, something is wrong ...\n")
-
-// 	}
-// 	fmt.Println("Home path:", home_path)
-
-// 	xdg_data := os.Getenv("XDG_DATA_HOME")
-// 	fmt.Println("idk if this is real? :", xdg_data)
-
-// 	xdg_config := os.Getenv("XDG_CONFIG_HOME")
-// 	fmt.Println("XDG_CONFIG_HOME:", xdg_config)
-
-// 	osname := runtime.GOOS
-// 	switch osname {
-// 	case "windows":
-// 		fmt.Println("Windows specific stuff")
-// 	case "darwin":
-// 		fmt.Println("MacOS stuff")
-// 	case "linux":
-// 		fmt.Println("linux stuff")
-// 	default:
-// 		fmt.Println("I have no idea what you're on ...")
-// 	}
-
-// 	return nil
-// }
