@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"go-pokebattle/dex"
+	. "go-pokebattle/dex"
 	"go-pokebattle/setup"
 
 	tea "charm.land/bubbletea/v2"
@@ -14,7 +14,7 @@ import (
 )
 
 type Model struct {
-	pokdex []dex.Pokemon
+	pokdex []Pokemon
 }
 
 func (m Model) Init() tea.Cmd {
@@ -29,7 +29,7 @@ func (m Model) View() tea.View {
 	return tea.View{}
 }
 
-func initModel(dex []dex.Pokemon) Model {
+func initModel(dex []Pokemon) Model {
 	return Model{
 		pokdex: dex,
 	}
@@ -45,15 +45,6 @@ func toTitle(str string) string {
 }
 
 func main() {
-	// // * Catch all panics!
-	// defer func() {
-	// 	r := recover()
-	// 	if r == nil {
-	// 		return
-	// 	}
-	// }()
-
-	// * Get and or Create Gorm/Sqlite DB
 	dbPath := "pokedata.db"
 	var db *gorm.DB = nil
 	var err error = nil
@@ -62,7 +53,7 @@ func main() {
 		// data := setup.FetchPokemonData()
 		// fmt.Println("Length of pokemon data from api:", len(data))
 		// * Fetch Data From PokeAPI, Create SQLite DB, seeded with API Data
-		data, errs := setup.FetchPokemonData()
+		data, errs := setup.FetchPokemonData(nil)
 		if errs != nil || len(errs) != 0 {
 			for _, e := range errs {
 				fmt.Fprintf(os.Stderr, "%+v\n", fmt.Errorf("Something failed creating pokemon db: %+v\n", e))
@@ -94,7 +85,7 @@ func main() {
 	}
 
 	// * Get all Pokemon from db
-	var pokedex []dex.Pokemon
+	var pokedex []Pokemon
 	result := db.Find(&pokedex)
 	if result.Error != nil {
 		printErrExit(fmt.Errorf("Error getting pokemon data: %v\n", result.Error))
@@ -105,14 +96,14 @@ func main() {
 	// 	printErrExit(err)
 	// }
 	// * Print Pokemons
-	// for _, k := range pokedex {
-	// 	var type2 string = "<nil>"
-	// 	if k.Type2 != nil {
-	// 		type2 = *k.Type2
-	// 	}
-	// 	titleName := toTitle(k.Name)
-	// 	fmt.Printf("Pokemon #%d, %s.  types: %s %s\n", k.ID, titleName, k.Type1, type2)
-	// }
+	for _, k := range pokedex {
+		var type2 string = "<nil>"
+		if k.Type2 != nil {
+			type2 = *k.Type2
+		}
+		titleName := toTitle(k.Name)
+		fmt.Printf("Pokemon #%d, %s.  types: %s %s\n", k.ID, titleName, k.Type1, type2)
+	}
 
 	// // * Get all moves from db
 	// var movedex []Move

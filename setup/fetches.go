@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"io"
 	"net/http"
 
@@ -12,20 +13,24 @@ import (
 	mapset "github.com/deckarep/golang-set/v2"
 )
 
-func rawApiDataToStructs(pokeId uint) Result[PokeApiData] {
+func topLevelPokemonData(client *http.Client, pokeId uint) Result[PokeApiData] {
+	if client == nil {
+		client = http.DefaultClient
+	}
+
 	url := fmt.Sprintf("%s/pokemon/%d", BASEURL, pokeId)
 
-	pokemap, err := fetchPokeAPIData(url)
+	pokemap, err := getPokeAPIData(client, url)
 	if err != nil {
 		return Err[PokeApiData](err)
 	}
 
-	type1, type2, err := getPokemonTypes(pokemap)
+	type1, type2, err := parsePTypes(pokemap)
 	if err != nil {
 		return Err[PokeApiData](err)
 	}
 
-	mStats, err := getStats(pokemap)
+	mStats, err := parsePStats(pokemap)
 	if err != nil {
 		return Err[PokeApiData](err)
 	} else if mStats == nil {
@@ -37,16 +42,16 @@ func rawApiDataToStructs(pokeId uint) Result[PokeApiData] {
 	grCh := make(chan Result[*string], 1)
 
 	go func() {
-		moveCh <- getMovesData(pokemap)
+		moveCh <- getMovesData(client, pokemap)
 	}()
 
 	go func() {
-		spriteCh <- getSprites(pokeId)
+		spriteCh <- getSprites(client, pokeId)
 	}()
 
 	go func() {
 		if speciesUrl, ok := pokemap["species"].(dict)["url"].(string); ok {
-			speciesData, err := fetchPokeAPIData(speciesUrl)
+			speciesData, err := getPokeAPIData(client, speciesUrl)
 			if err != nil {
 				grCh <- Err[*string](err)
 				return
@@ -94,8 +99,8 @@ func rawApiDataToStructs(pokeId uint) Result[PokeApiData] {
 	})
 }
 
-func fetchPokeAPIData(url string) (dict, error) {
-	resp, err := http.Get(url)
+func getPokeAPIData(client *http.Client, url string) (dict, error) {
+	resp, err := client.Get(url)
 	if err != nil {
 		return dict{}, err
 	}
@@ -108,7 +113,7 @@ func fetchPokeAPIData(url string) (dict, error) {
 	return data, nil
 }
 
-func getSprites(pokeId uint) Result[Sprites] {
+func getSprites(client *http.Client, pokeId uint) Result[Sprites] {
 	frontUrl := fmt.Sprintf("%s/%d.png", SPRITEURLBASE, pokeId)
 	backUrl := fmt.Sprintf("%s/back/%d.png", SPRITEURLBASE, pokeId)
 
@@ -119,7 +124,7 @@ func getSprites(pokeId uint) Result[Sprites] {
 		return nil, fmt.Errorf("Wrong Content-Type from network response.%v", resp.Header.Get("Content-Type"))
 	}
 
-	ftResp, err := http.Get(frontUrl)
+	ftResp, err := client.Get(frontUrl)
 	if err != nil {
 		return Err[Sprites](err)
 	}
@@ -130,7 +135,7 @@ func getSprites(pokeId uint) Result[Sprites] {
 		return Err[Sprites](err)
 	}
 
-	bkResp, err := http.Get(backUrl)
+	bkResp, err := client.Get(backUrl)
 	if err != nil {
 		return Err[Sprites](err)
 	}
@@ -143,7 +148,7 @@ func getSprites(pokeId uint) Result[Sprites] {
 	return Ok(Sprites{ftSprite, bkSprite})
 }
 
-func getMovesData(pokeData dict) Result[[]MoveData] {
+func getMovesData(client *http.Client, pokeData dict) Result[[]MoveData] {
 	var rbMoves []_mvIR
 	names := mapset.NewSet[string]()
 
@@ -177,7 +182,7 @@ func getMovesData(pokeData dict) Result[[]MoveData] {
 
 	var detailed []MoveData
 	for _, move := range rbMoves {
-		mvData, err := fetchPokeAPIData(move.url)
+		mvData, err := getPokeAPIData(client, move.url)
 		if err != nil {
 			// TODO: error handle, idk man ..
 		}
@@ -267,7 +272,7 @@ func getMovesData(pokeData dict) Result[[]MoveData] {
 	return Ok(detailed)
 }
 
-func getPokemonTypes(data dict) (string, *string, error) {
+func parsePTypes(data dict) (string, *string, error) {
 	var type1 string
 	var type2 *string
 	for _, t := range data["types"].([]any) {
@@ -295,7 +300,7 @@ func getPokemonTypes(data dict) (string, *string, error) {
 	return type1, type2, nil
 }
 
-func getStats(data dict) (*PokemonStats, error) {
+func parsePStats(data dict) (*PokemonStats, error) {
 	mStats := make(map[string]int)
 	for _, v := range data["stats"].([]any) {
 		tm := v.(dict)
