@@ -7,14 +7,41 @@ import (
 	"go-pokebattle/dex"
 	"go-pokebattle/setup"
 
+	tea "charm.land/bubbletea/v2"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 	"gorm.io/gorm"
 )
 
+type Model struct {
+	pokdex []dex.Pokemon
+}
+
+func (m Model) Init() tea.Cmd {
+	return nil
+}
+
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	return m, nil
+}
+
+func (m Model) View() tea.View {
+	return tea.View{}
+}
+
+func initModel(dex []dex.Pokemon) Model {
+	return Model{
+		pokdex: dex,
+	}
+}
+
 func printErrExit(err error) {
 	fmt.Fprintf(os.Stderr, "%+v", err)
 	os.Exit(1)
+}
+
+func toTitle(str string) string {
+	return cases.Title(language.Und, cases.NoLower).String(str)
 }
 
 func main() {
@@ -73,15 +100,19 @@ func main() {
 		printErrExit(fmt.Errorf("Error getting pokemon data: %v\n", result.Error))
 	}
 
+	// p := tea.NewProgram(initModel(pokedex))
+	// if _, err := p.Run(); err != nil {
+	// 	printErrExit(err)
+	// }
 	// * Print Pokemons
-	for _, k := range pokedex {
-		var type2 string = "<nil>"
-		if k.Type2 != nil {
-			type2 = *k.Type2
-		}
-		titleName := cases.Title(language.Und, cases.NoLower).String(k.Name)
-		fmt.Printf("Pokemon #%d, %s.  types: %s %s\n", k.ID, titleName, k.Type1, type2)
-	}
+	// for _, k := range pokedex {
+	// 	var type2 string = "<nil>"
+	// 	if k.Type2 != nil {
+	// 		type2 = *k.Type2
+	// 	}
+	// 	titleName := toTitle(k.Name)
+	// 	fmt.Printf("Pokemon #%d, %s.  types: %s %s\n", k.ID, titleName, k.Type1, type2)
+	// }
 
 	// // * Get all moves from db
 	// var movedex []Move
