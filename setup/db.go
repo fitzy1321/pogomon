@@ -2,9 +2,8 @@ package setup
 
 import (
 	"fmt"
+	. "go-pokebattle/sqlmodels"
 	"strings"
-
-	"go-pokebattle/dex"
 
 	mapset "github.com/deckarep/golang-set/v2"
 	"gorm.io/driver/sqlite"
@@ -33,29 +32,33 @@ func GetGormSqliteDB(dbPath string) (*gorm.DB, error) {
 func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 	fmt.Println("Initializing db @filepath:", dbPath)
 
-	db, err := GetGormSqliteDB(dbPath)
+	gdb, err := GetGormSqliteDB(dbPath)
 	if err != nil {
 		return nil, err
 	}
 
-	err = db.AutoMigrate(
-		&dex.Pokemon{},
-		&dex.Move{},
-		&dex.PokemonMove{},
-		&dex.Evolution{},
+	err = gdb.AutoMigrate(
+		&Pokemon{},
+		&Move{},
+		&PokemonMove{},
+		&Evolution{},
+		&SaveFile{},
+		&PartyPokemon{},
+		&PartyPokemonMove{},
 	)
+
 	if err != nil {
-		return db, err
+		return gdb, err
 	}
 
-	pokemon := make([]dex.Pokemon, 0, GEN1POKEMONCOUNT)
-	var moves []dex.Move
-	var pokemonMoves []dex.PokemonMove
+	pokemon := make([]Pokemon, 0, GEN1POKEMONCOUNT)
+	var moves []Move
+	var pokemonMoves []PokemonMove
 	moveIdSet := mapset.NewSet[uint]()
-	var evolutions []dex.Evolution
+	var evolutions []Evolution
 
 	for _, pitem := range apiData {
-		pokemon = append(pokemon, dex.Pokemon{
+		pokemon = append(pokemon, Pokemon{
 			ID:             pitem.ID,
 			Name:           pitem.Name,
 			Type1:          pitem.Type1,
@@ -74,7 +77,7 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 		for _, mitem := range pitem.Moves {
 			if !moveIdSet.Contains(mitem.ID) {
 				moveIdSet.Add(mitem.ID)
-				moves = append(moves, dex.Move{
+				moves = append(moves, Move{
 					ID:            mitem.ID,
 					Name:          mitem.Name,
 					Power:         mitem.Power,
@@ -89,7 +92,7 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 					Drain:         mitem.Drain,
 				})
 			}
-			pokemonMoves = append(pokemonMoves, dex.PokemonMove{
+			pokemonMoves = append(pokemonMoves, PokemonMove{
 				PokemonID:    pitem.ID,
 				MoveID:       mitem.ID,
 				LevelLearned: mitem.LevelLearned,
@@ -102,7 +105,7 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 		}
 
 		for _, evoRaw := range pitem.NextEvolutions {
-			evolutions = append(evolutions, dex.Evolution{
+			evolutions = append(evolutions, Evolution{
 				PokemonID:       pitem.ID,
 				EvolvesIntoID:   evoRaw.EvolvesIntoID,
 				EvolvesIntoName: evoRaw.EvolvesIntoName,
@@ -114,22 +117,22 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 		}
 	}
 
-	tx := db.CreateInBatches(pokemon, len(pokemon))
+	tx := gdb.CreateInBatches(pokemon, len(pokemon))
 	if tx.Error != nil {
-		return db, tx.Error
+		return gdb, tx.Error
 	}
-	tx = db.CreateInBatches(moves, len(moves))
+	tx = gdb.CreateInBatches(moves, len(moves))
 	if tx.Error != nil {
-		return db, tx.Error
+		return gdb, tx.Error
 	}
-	tx = db.CreateInBatches(pokemonMoves, len(moves))
+	tx = gdb.CreateInBatches(pokemonMoves, len(moves))
 	if tx.Error != nil {
-		return db, tx.Error
+		return gdb, tx.Error
 	}
-	tx = db.CreateInBatches(evolutions, len(evolutions))
+	tx = gdb.CreateInBatches(evolutions, len(evolutions))
 	if tx.Error != nil {
-		return db, tx.Error
+		return gdb, tx.Error
 	}
 
-	return db, nil
+	return gdb, nil
 }

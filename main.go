@@ -5,117 +5,129 @@ import (
 	"net/http"
 	"os"
 
-	. "go-pokebattle/dex"
 	"go-pokebattle/setup"
+	"go-pokebattle/sqlmodels"
 
 	tea "charm.land/bubbletea/v2"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
+	"github.com/charmbracelet/bubbles/key"
 	"gorm.io/gorm"
 )
 
-type Model struct {
-	pokdex []Pokemon
+type keyMap struct {
+	Enter key.Binding
+	Back  key.Binding
+	Quit  key.Binding
 }
 
-func (m Model) Init() tea.Cmd {
+var keys = keyMap{
+	Enter: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "select"),
+	),
+	Back: key.NewBinding(
+		key.WithKeys("esc", "backspace"), // both trigger the same action
+		key.WithHelp("esc", "back"),
+	),
+	Quit: key.NewBinding(
+		key.WithKeys("q", "ctrl+c", "ctrl+d"),
+		key.WithHelp("q", "quit"),
+	),
+}
+
+type appState int
+
+const (
+	titleScreen appState = iota
+	saveOrCreateFile
+)
+
+type AppModel struct {
+	DB                  *gorm.DB
+	saveFiles           []saveFileStart
+	currentFile         *sqlmodels.SaveFile
+	state               appState
+	tuiWidth, tuiHeight uint
+}
+
+func (m AppModel) Init() tea.Cmd {
 	return nil
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch t := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.tuiWidth, m.tuiHeight = uint(t.Width), uint(t.Height)
+	case tea.KeyMsg:
+		switch {
+		case key.Matches(t, keys.Enter):
+		case key.Matches(t, keys.Quit):
+			return m, tea.Quit
+		}
+	}
 	return m, nil
 }
 
-func (m Model) View() tea.View {
-	return tea.View{}
-}
-
-func initModel(dex []Pokemon) Model {
-	return Model{
-		pokdex: dex,
+func (m AppModel) View() tea.View {
+	var view tea.View
+	if m.state == titleScreen {
+		view = tea.NewView("Welcome to Pokebattle TUI!")
 	}
+	return view
 }
 
-func printErrExit(err error) {
-	fmt.Fprintf(os.Stderr, "Error:: %+v\n", err)
+func printErrExit(errs ...error) {
+	for _, e := range errs {
+		fmt.Fprintf(os.Stderr, "Error:: %+v\n", e)
+	}
 	os.Exit(1)
+
 }
 
-func toTitle(str string) string {
-	return cases.Title(language.Und, cases.NoLower).String(str)
+type saveFileStart struct {
+	ID   uint
+	Name string
 }
 
 func main() {
 	dbPath := "pokedata.db"
-	var db *gorm.DB = nil
-	var err error = nil
+	var gdb *gorm.DB = nil
 
 	if !setup.FileExists(dbPath) {
-		// data := setup.FetchPokemonData()
-		// fmt.Println("Length of pokemon data from api:", len(data))
+		var errs []error
 		// * Fetch Data From PokeAPI, Create SQLite DB, seeded with API Data
-		data, errs := setup.FetchPokemonData(http.DefaultClient)
-		if errs != nil || len(errs) != 0 {
-			for _, e := range errs {
-				fmt.Fprintf(os.Stderr, "%+v\n", fmt.Errorf("Something failed creating pokemon db: %+v\n", e))
-			}
-			os.Exit(1)
+		gdb, errs = setup.FetchDataAndCreateDB(dbPath, http.DefaultClient)
+		if errs != nil || len(errs) > 0 {
+			printErrExit(errs...)
 		}
-		if err := setup.SaveGobFile(data, setup.CACHEFILE); err != nil {
-			printErrExit(err)
-		}
-		db, err = setup.CreateAndSeedDB(data, dbPath)
-		if err != nil {
-			printErrExit(err)
-		}
-		// db, errs = setup.FetchDataAndCreateDB(dbPath)
-		// if errs != nil || len(errs) != 0 {
-		// 	for _, e := range errs {
-		// 		fmt.Fprintf(os.Stderr, "%+v", fmt.Errorf("Something failed creating pokemon db: %+v\n", e))
-		// 	}
-		// 	os.Exit(1)
-		// }
 		// * Wait for terminal input
 		fmt.Print("> ")
 		fmt.Scanln()
 	} else {
-		db, err = setup.GetGormSqliteDB(dbPath)
+		var err error = nil
+		gdb, err = setup.GetGormSqliteDB(dbPath)
 		if err != nil {
 			printErrExit(fmt.Errorf("Something failed connecting to pokemon db: %v\n", err))
 		}
 	}
 
-	// * Get all Pokemon from db
-	var pokedex []Pokemon
-	result := db.Find(&pokedex)
+	var saveFileStarts []saveFileStart
+	result := gdb.Model(&sqlmodels.SaveFile{}).Select("id", "name").Scan(&saveFileStarts)
 	if result.Error != nil {
-		printErrExit(fmt.Errorf("Error getting pokemon data: %v\n", result.Error))
+		printErrExit(fmt.Errorf("There was a problem loading save files: %+v\n", result.Error))
 	}
 
-	// p := tea.NewProgram(initModel(pokedex))
-	// if _, err := p.Run(); err != nil {
-	// 	printErrExit(err)
-	// }
-	// * Print Pokemons
-	for _, k := range pokedex {
-		var type2 string = "<nil>"
-		if k.Type2 != nil {
-			type2 = *k.Type2
-		}
-		titleName := toTitle(k.Name)
-		fmt.Printf("Pokemon #%d, %s.  types: %s %s\n", k.ID, titleName, k.Type1, type2)
+	// * Setup bubbletea inital model ...
+	p := tea.NewProgram(AppModel{
+		DB:          gdb,
+		saveFiles:   saveFileStarts,
+		currentFile: nil,
+		state:       titleScreen,
+		tuiWidth:    0,
+		tuiHeight:   0,
+	})
+
+	// * Run Bubbletea app
+	if _, err := p.Run(); err != nil {
+		printErrExit(err)
 	}
-
-	// // * Get all moves from db
-	// var movedex []Move
-	// result = db.Find(&movedex)
-	// if result.Error != nil {
-	// 	fmt.Fprintf(os.Stderr, "Error getting move data: %v\n", result.Error)
-	// 	return
-	// }
-
-	// // * Print moves
-	// for _, k := range movedex {
-	// 	fmt.Printf("Move id: %d, Name: %s\n", k.Id, k.Name)
-	// }
 }

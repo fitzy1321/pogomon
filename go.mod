@@ -4,6 +4,7 @@ go 1.26.4
 
 require (
 	charm.land/bubbletea/v2 v2.0.8
+	github.com/charmbracelet/bubbles v1.0.0
 	github.com/deckarep/golang-set/v2 v2.9.0
 	golang.org/x/text v0.20.0
 	gorm.io/driver/sqlite v1.6.0

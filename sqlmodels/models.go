@@ -1,11 +1,44 @@
-package dex
+package sqlmodels
 
 // NOTE: thoughts about integer typing below
 // NOTE: IDs = uints, because we'll never have a negative id value.
 // NOTE: Any other integer = ints, various moves and pokemon information could have negative values.
 // NOTE: A pointer means that field/column is nullable
-// WARN: gorm db structs, do not change without understanding the consequences
+// WARN: gorm db structs, do not change without running migrations
 type (
+	SaveFile struct {
+		ID   uint   `gorm:"primarykey"`
+		Name string `gorm:"not null"`
+
+		PartyPokemon []PartyPokemon `gorm:"foreignKey:SaveFileID"`
+	}
+
+	PartyPokemon struct {
+		ID           uint `gorm:"primaryKey"`
+		SaveFileID   uint `gorm:"not null"`
+		PokemonID    uint `gorm:"not null"`
+		Nickname     *string
+		Level        uint
+		Experience   uint
+		CurrentHP    uint
+		StatusEffect *string
+		PartySlot    uint // 1 - 4
+
+		Pokemon Pokemon            `gorm:"foreignKey:PokemonID"`
+		Moves   []PartyPokemonMove `gorm:"foreignKey:PartyPokemonID"`
+	}
+
+	PartyPokemonMove struct {
+		ID             uint `gorm:"primaryKey"`
+		PartyPokemonID uint
+		MoveID         uint
+		MoveSlot       uint // 1-4
+		CurrentPP      uint
+
+		Move Move `gorm:"foreignKey:MoveID"`
+	}
+
+	// * Static Models
 	Pokemon struct {
 		ID             uint   `gorm:"primaryKey;autoIncrement:false;not null"` // comes from api
 		Name           string `gorm:"uniqueIndex:idx_pokemon_name;not null"`

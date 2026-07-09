@@ -22,42 +22,36 @@ const (
 )
 
 type (
-	dict           = map[string]any
-	FetchFnOptions struct {
-		LoadFromCacheFile bool
-		SaveToCacheFile   bool
-		Client            *http.Client
-	}
+	dict = map[string]any
 )
 
 // Call PokeAPI and etl into Sqlite tables
-func FetchDataAndCreateDB(dbPath string, fOpts FetchFnOptions) (*gorm.DB, []error) {
+func FetchDataAndCreateDB(dbPath string, client *http.Client) (*gorm.DB, []error) {
 	var data []PokeApiData
-	if fOpts.LoadFromCacheFile {
-		if FileExists(CACHEFILE) {
-			var err error
-			data, err = LoadGobFile(CACHEFILE)
-			if err != nil {
-				//TODO
-			}
-		} else {
-			return nil, []error{errors.New("Load Cache File option was passed in, but cachefile doesnot exist!")}
+	if FileExists(CACHEFILE) {
+		var err error
+		data, err = LoadGobFile(CACHEFILE)
+		if err != nil {
+			return nil, []error{err}
 		}
 	} else {
 		var errs []error
-		data, errs = FetchPokemonData(fOpts.Client)
+		if client == nil {
+			client = http.DefaultClient
+		}
+		data, errs = FetchPokemonData(client)
 		if errs != nil || len(errs) > 0 {
 			return nil, errs
 		}
 		if len(data) == 0 {
 			return nil, []error{errors.New("Failed to fetch data from PokeAPI")}
 		}
-		if fOpts.SaveToCacheFile {
-			err := SaveGobFile(data, CACHEFILE)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error occurred saving cache gob file: %+v\n", err)
-			}
+		// if fOpts.SaveToCacheFile {
+		err := SaveGobFile(data, CACHEFILE)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error occurred saving cache gob file: %+v\n", err)
 		}
+		// }
 	}
 
 	res, err := CreateAndSeedDB(data, dbPath)
