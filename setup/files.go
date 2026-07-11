@@ -2,7 +2,9 @@ package setup
 
 import (
 	"encoding/gob"
+	"fmt"
 	"os"
+	"path/filepath"
 )
 
 func FileExists(path string) bool {
@@ -18,8 +20,20 @@ func FileExists(path string) bool {
 	return false
 }
 
-func SaveGobFile(data []PokeApiData, filePath string) error {
-	file, err := os.Create(filePath)
+func checkForGobExtension(fpath string) error {
+	gobext := filepath.Ext(fpath)
+	if gobext != ".gob" {
+		return fmt.Errorf("ERROR:::File path provided is not a gob file.\nRejeected Filepath: %s", fpath)
+	}
+	return nil
+}
+
+func SaveGobFile(data []PokeApiData, fpath string) error {
+	if err := checkForGobExtension(fpath); err != nil {
+		return err
+	}
+
+	file, err := os.Create(fpath)
 	if err != nil {
 		return err
 	}
@@ -32,9 +46,12 @@ func SaveGobFile(data []PokeApiData, filePath string) error {
 	return nil
 }
 
-func LoadGobFile(filePath string) ([]PokeApiData, error) {
+func LoadGobFile(fpath string) ([]PokeApiData, error) {
+	if err := checkForGobExtension(fpath); err != nil {
+		return nil, err
+	}
 	var data []PokeApiData
-	file, err := os.Open(filePath)
+	file, err := os.Open(fpath)
 	if err != nil {
 		return nil, err
 	}

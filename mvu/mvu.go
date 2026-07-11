@@ -10,7 +10,37 @@ import (
 	"gorm.io/gorm"
 )
 
-func InitModel(db *gorm.DB) (*AppModel, error) {
+// fields here should be related to view, render, update states
+type (
+	// * Top Level Bubbletea Model
+	AppModel struct {
+		width, height uint
+		viewState     viewState
+		internalAppState
+	}
+
+	internalAppState struct {
+		DB          *gorm.DB
+		saveFiles   []saveFileStart
+		currentFile *sqlmodels.UserSave
+	}
+
+	saveFileStart struct {
+		ID   uint
+		Name string
+	}
+
+	keyMap struct {
+		Enter key.Binding
+		// Back  key.Binding
+		Quit key.Binding
+	}
+
+	tickMsg          struct{}
+	titleTickDoneMsg struct{}
+)
+
+func NewAppModel(db *gorm.DB) (*AppModel, error) {
 	var saveFileStarts []saveFileStart
 	result := db.Model(&sqlmodels.UserSave{}).Select("id", "name").Scan(&saveFileStarts)
 	if result.Error != nil {
@@ -19,71 +49,24 @@ func InitModel(db *gorm.DB) (*AppModel, error) {
 
 	return &AppModel{
 		width: 0, height: 0,
-		internal: &internalAppState{
-			DB:          db,
+		viewState: titleView,
+		internalAppState: internalAppState{DB: db,
 			saveFiles:   saveFileStarts,
 			currentFile: nil,
 		},
-		viewState: titleView,
 	}, nil
 }
 
-type keyMap struct {
-	Enter key.Binding
-	// Back  key.Binding
-	Quit key.Binding
-}
-
-var keys = keyMap{
-	Enter: key.NewBinding(
-		key.WithKeys("enter"),
-		key.WithHelp("enter", "select"),
-	),
-	// Back: key.NewBinding(
-	// 	key.WithKeys("esc", "backspace"),
-	// 	key.WithHelp("esc", "back"),
-	// ),
-	Quit: key.NewBinding(
-		key.WithKeys("q", "ctrl+c", "ctrl+d"),
-		key.WithHelp("q", "quit"),
-	),
-}
-
-type viewState int
-
-const (
-	titleView viewState = iota
-	saveFileOrNewView
-)
-
-type saveFileStart struct {
-	ID   uint
-	Name string
-}
-type internalAppState struct {
-	DB          *gorm.DB
-	saveFiles   []saveFileStart
-	currentFile *sqlmodels.UserSave
-}
-
-// fields here should be related to view, render, update states
-type AppModel struct {
-	width, height uint
-	internal      *internalAppState
-	viewState     viewState
-}
-
-type titleTickDone struct{}
-
+// Gets called once "on start", I think
 func (m AppModel) Init() tea.Cmd {
 	return tea.Tick(2*time.Second, func(time.Time) tea.Msg {
-		return titleTickDone{}
+		return titleTickDoneMsg{}
 	})
 }
 
 func (m AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch t := msg.(type) {
-	case titleTickDone:
+	case titleTickDoneMsg:
 		if m.viewState == titleView {
 			m.viewState = saveFileOrNewView
 			return m, nil
@@ -111,3 +94,25 @@ func (m AppModel) View() tea.View {
 
 	return view
 }
+
+var keys = keyMap{
+	Enter: key.NewBinding(
+		key.WithKeys("enter"),
+		key.WithHelp("enter", "select"),
+	),
+	// Back: key.NewBinding(
+	// 	key.WithKeys("esc", "backspace"),
+	// 	key.WithHelp("esc", "back"),
+	// ),
+	Quit: key.NewBinding(
+		key.WithKeys("q", "ctrl+c", "ctrl+d"),
+		key.WithHelp("q", "quit"),
+	),
+}
+
+type viewState int
+
+const (
+	titleView viewState = iota
+	saveFileOrNewView
+)

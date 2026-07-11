@@ -34,6 +34,8 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 	gdb, err := GetGormSqliteDB(dbPath)
 	if err != nil {
 		return nil, err
+	} else if gdb.Error != nil {
+		return gdb, gdb.Error
 	}
 
 	err = gdb.AutoMigrate(
@@ -74,9 +76,9 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 			BackSprite:     pitem.Sprites.Back,
 		})
 
-		// NOTE: Deduplicate PokemonMoves -> Moves slice
 		for _, mitem := range pitem.Moves {
-			if _, has := moveIdSet[mitem.ID]; !has {
+			// NOTE: Deduplicate PokemonMoves -> Moves slice
+			if _, exists := moveIdSet[mitem.ID]; !exists {
 				moveIdSet[mitem.ID] = struct{}{}
 				moves = append(moves, Move{
 					ID:            mitem.ID,

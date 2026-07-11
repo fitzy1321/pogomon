@@ -48,7 +48,7 @@ func main() {
 	}
 
 	// * Setup bubbletea inital model ...
-	model, err := mvu.InitModel(gdb)
+	model, err := mvu.NewAppModel(gdb)
 	if err != nil {
 		printErrExit(err)
 	}

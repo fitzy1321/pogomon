@@ -13,78 +13,11 @@ import (
 	. "go-pokebattle/result"
 )
 
-type (
-	PokeApiData struct {
-		ID             uint
-		Name           string
-		Type1          string
-		Type2          *string // nullable
-		BaseExperience *int    // nullable
-		Moves          []MoveData
-		NextEvolutions []NextEvoData
-		GrowthRate     *string // nullable
-		Sprites        Sprites
-		PokemonStats
-	}
-
-	MoveData struct {
-		ID            uint
-		Name          string
-		LevelLearned  int
-		LearnMethod   *string
-		MaxPP         int
-		Power         *int         // nullable
-		Accuracy      *int         // nullable
-		Type          *string      // TODO: should this be nullable?
-		DamageClass   *string      // nullable
-		Ailment       *string      // nullable
-		AilmentChance *int         // nullable
-		MoveCategory  *string      // nullable
-		Healing       *int         // nullable
-		Drain         *int         // nullable
-		StatChanges   []statChange // TODO: maybe nullable? wait, is this used?
-
-	}
-
-	PokemonStats struct {
-		Attack    int
-		Defense   int
-		HP        int
-		SpAttack  int
-		SpDefense int
-		Speed     int
-	}
-
-	statChange struct {
-		Stat   string
-		Change any // TODO: check type
-	}
-
-	NextEvoData struct {
-		EvolvesIntoID   uint
-		EvolvesIntoName *string
-		Trigger         *string
-		MinLevel        *int
-		Item            *string // nullable
-	}
-
-	Sprites struct {
-		Front, Back []byte
-	}
-
-	_mvIR struct {
-		name   string
-		level  int
-		url    string
-		method string
-	}
-)
-
-type NetworkClient interface {
+type HttpGetter interface {
 	Get(url string) (resp *http.Response, err error)
 }
 
-func topLevelPokemonData(client NetworkClient, pokemonId uint) Result[*PokeApiData] {
+func topLevelPokemonData(client HttpGetter, pokemonId uint) Result[*PokeApiData] {
 	url := fmt.Sprintf("%s/pokemon/%d", BASEURL, pokemonId)
 
 	pokemap, err := networkGetHandler(client, url)
@@ -189,7 +122,7 @@ var (
 	mu           sync.RWMutex
 )
 
-func networkGetHandler(client NetworkClient, url string) (dict, error) {
+func networkGetHandler(client HttpGetter, url string) (dict, error) {
 	mu.RLock()
 	cResp, ok := requestCache[url]
 	mu.RUnlock()
@@ -225,7 +158,7 @@ func networkGetHandler(client NetworkClient, url string) (dict, error) {
 	return data, nil
 }
 
-func getSprites(client NetworkClient, pokeId uint) Result[*Sprites] {
+func getSprites(client HttpGetter, pokeId uint) Result[*Sprites] {
 	if client == nil {
 		client = http.DefaultClient
 	}
@@ -264,7 +197,7 @@ func getSprites(client NetworkClient, pokeId uint) Result[*Sprites] {
 	return Ok(&Sprites{ftSprite, bkSprite})
 }
 
-func getMovesData(client NetworkClient, pokeData dict) Result[[]MoveData] {
+func getMovesData(client HttpGetter, pokeData dict) Result[[]MoveData] {
 	movesIR := make(map[string]_mvIR)
 
 	pokeMoves, ok := pokeData["moves"].([]any)
@@ -386,7 +319,7 @@ func getMovesData(client NetworkClient, pokeData dict) Result[[]MoveData] {
 	return Ok(detailed)
 }
 
-func getEvoData(client NetworkClient, speciesData dict, targetPokemonName string) ([]NextEvoData, error) {
+func getEvoData(client HttpGetter, speciesData dict, targetPokemonName string) ([]NextEvoData, error) {
 	// WARN no `return nil, nil` here.
 	// WARN We need to return some value from this func, either an empty slice or error.
 	evoChain, ok := speciesData["evolution_chain"].(dict)
@@ -413,7 +346,7 @@ func getEvoData(client NetworkClient, speciesData dict, targetPokemonName string
 	return result, nil
 }
 
-func _evoWalk(client NetworkClient, node dict, target string) ([]NextEvoData, error) {
+func _evoWalk(client HttpGetter, node dict, target string) ([]NextEvoData, error) {
 	species, ok := node["species"].(dict)
 	if !ok {
 		return nil, fmt.Errorf("'species' field missing for %s's chain data", target)
@@ -447,7 +380,7 @@ func _evoWalk(client NetworkClient, node dict, target string) ([]NextEvoData, er
 	return []NextEvoData{}, nil
 }
 
-func _buildEvoEntry(client NetworkClient, nextNode map[string]any) (*NextEvoData, error) {
+func _buildEvoEntry(client HttpGetter, nextNode map[string]any) (*NextEvoData, error) {
 	species := nextNode["species"].(dict)
 	nextName := species["name"].(string)
 
