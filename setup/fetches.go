@@ -16,24 +16,24 @@ type HttpGetter interface {
 	Get(url string) (resp *http.Response, err error)
 }
 
-func topLevelPokemonData(client HttpGetter, pokemonId uint) Result[*PokeApiData] {
+func topLevelPokemonData(client HttpGetter, pokemonId uint) Result[pp_t] {
 	url := fmt.Sprintf("%s/pokemon/%d", BASEURL, pokemonId)
 
 	pokemap, err := networkGetHandler(client, url)
 	if err != nil {
-		return Err[*PokeApiData](err)
+		return Err[pp_t](err)
 	}
 
 	name := pokemap["name"].(string)
 
 	type1, type2, err := parsePTypes(pokemap)
 	if err != nil {
-		return Err[*PokeApiData](err)
+		return Err[pp_t](err)
 	}
 
 	mStats, err := parsePStats(pokemap)
 	if err != nil {
-		return Err[*PokeApiData](err)
+		return Err[pp_t](err)
 	} else if mStats == nil {
 		mStats = &PokemonStats{}
 	}
@@ -73,13 +73,13 @@ func topLevelPokemonData(client HttpGetter, pokemonId uint) Result[*PokeApiData]
 
 	moveRes := <-moveCh
 	if moveRes.IsErr() {
-		return Err[*PokeApiData](moveRes.Error)
+		return Err[pp_t](moveRes.Error)
 	}
 	moves := moveRes.Value
 
 	spriteRes := <-spriteCh
 	if spriteRes.IsErr() {
-		return Err[*PokeApiData](spriteRes.Error)
+		return Err[pp_t](spriteRes.Error)
 	}
 	sprites := spriteRes.Value
 
@@ -117,13 +117,13 @@ func topLevelPokemonData(client HttpGetter, pokemonId uint) Result[*PokeApiData]
 
 // this acts as a makeshift lru_cache(max_size=none)
 var (
-	requestCache = make(map[string]dict)
+	requestCache = make(map[string]any)
 	mu           sync.RWMutex
 )
 
 func networkGetHandler(client HttpGetter, url string) (dict, error) {
 	mu.RLock()
-	cResp, ok := requestCache[url]
+	cResp, ok := requestCache[url].(dict)
 	mu.RUnlock()
 	if ok {
 		return cResp, nil
@@ -135,7 +135,7 @@ func networkGetHandler(client HttpGetter, url string) (dict, error) {
 
 	resp, err := client.Get(url)
 	if err != nil {
-		return dict{}, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
@@ -143,9 +143,9 @@ func networkGetHandler(client HttpGetter, url string) (dict, error) {
 		return nil, fmt.Errorf("HTTP Status Code: %d. HTTP Status MSG: %s", resp.StatusCode, resp.Status)
 	}
 
-	var data dict
+	var data dict // don't make here, we want to check for nil later
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return dict{}, err
+		return nil, err
 	}
 
 	if data != nil {
@@ -389,7 +389,7 @@ func _buildEvoEntry(client HttpGetter, nextNode map[string]any) (*NextEvoData, e
 		detail, _ = details[0].(dict)
 	}
 	if detail == nil {
-		detail = dict{}
+		detail = make(map[string]any)
 	}
 
 	var minLevel int
