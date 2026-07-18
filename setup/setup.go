@@ -11,6 +11,7 @@ import (
 
 	"pogomon/consts"
 	. "pogomon/result"
+	"pogomon/utils"
 
 	"gorm.io/gorm"
 )
@@ -98,9 +99,9 @@ type (
 // Call PokeAPI and etl into Sqlite tables
 func FetchDataAndCreateDB(dbPath string) (*gorm.DB, []error) {
 	var data []PokeApiData
-	if FileExists(consts.CACHEFILE) {
+	if utils.FileExists(consts.CACHEFILE) {
 		var err error
-		data, err = LoadGobFile(consts.CACHEFILE)
+		data, err = utils.LoadGobFile[PokeApiData](consts.CACHEFILE)
 		if err != nil {
 			return nil, []error{err}
 		}
@@ -141,7 +142,7 @@ func FetchDataAndCreateDB(dbPath string) (*gorm.DB, []error) {
 			return nil, []error{errors.New("Failed to fetch data from PokeAPI")}
 		}
 		// if fOpts.SaveToCacheFile {
-		err := SaveGobFile(data, consts.CACHEFILE)
+		err := utils.SaveGobFile(data, consts.CACHEFILE)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error occurred saving cache gob file: %+v\n", err)
 		}

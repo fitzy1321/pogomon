@@ -1,4 +1,4 @@
-package sqlmodels
+package store
 
 // NOTE: thoughts about integer typing below
 // NOTE: IDs = uints, because we'll never have a negative id value.

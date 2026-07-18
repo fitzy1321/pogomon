@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"pogomon/consts"
-	"pogomon/sqlmodels"
+	"pogomon/store"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/bubbles/key"
@@ -24,9 +24,9 @@ type (
 
 	internalAppState struct {
 		DB          *gorm.DB
+		currentFile *store.UserSave
 		saveFiles   []saveFileStart
-		currentFile *sqlmodels.UserSave
-		pokedex     []sqlmodels.Pokemon
+		pokedex     []store.Pokemon
 	}
 
 	saveFileStart struct {
@@ -46,12 +46,12 @@ type (
 
 func NewAppModel(db *gorm.DB) (*AppModel, error) {
 	var saveFileStarts []saveFileStart
-	result := db.Model(&sqlmodels.UserSave{}).Select("id", "name").Scan(&saveFileStarts)
+	result := db.Model(&store.UserSave{}).Select("id", "name").Scan(&saveFileStarts)
 	if result.Error != nil {
 		return nil, fmt.Errorf("There was a problem loading save files: %+v\n", result.Error)
 	}
 
-	var pokedex []sqlmodels.Pokemon
+	var pokedex []store.Pokemon
 	result = db.Find(&pokedex)
 	if result.Error != nil {
 		return nil, result.Error
@@ -64,7 +64,8 @@ func NewAppModel(db *gorm.DB) (*AppModel, error) {
 	return &AppModel{
 		width: 0, height: 0,
 		viewState: titleView,
-		internalAppState: internalAppState{DB: db,
+		internalAppState: internalAppState{
+			DB:          db,
 			saveFiles:   saveFileStarts,
 			currentFile: nil,
 			pokedex:     pokedex,

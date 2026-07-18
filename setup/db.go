@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"pogomon/consts"
-	. "pogomon/sqlmodels"
+	. "pogomon/store"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
