@@ -1,4 +1,4 @@
-module go-pokebattle
+module pogomon
 
 go 1.26.5
 

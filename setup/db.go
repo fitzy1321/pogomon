@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	. "go-pokebattle/sqlmodels"
+	. "pogomon/sqlmodels"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"

@@ -7,7 +7,7 @@ import (
 	"os"
 	"sync"
 
-	. "go-pokebattle/result"
+	. "pogomon/result"
 
 	"gorm.io/gorm"
 )

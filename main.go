@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
-	"net/http"
 	"os"
+	"path"
+	"path/filepath"
+	"runtime"
+	"runtime/debug"
 
-	"go-pokebattle/mvu"
-	"go-pokebattle/setup"
+	"pogomon/mvu"
+	"pogomon/setup"
 
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/text/cases"
@@ -25,6 +28,47 @@ func printErrExit(errs ...error) {
 	os.Exit(1)
 }
 
+func appName() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "go-pokebattle"
+	}
+	return path.Base(info.Main.Path)
+}
+
+func getDataDir() (string, error) {
+	// 1. Check XDG_DATA_HOME first
+	dataHome := os.Getenv("XDG_DATA_HOME")
+
+	// 2. Fall back to OS-specific defaults
+	if dataHome == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf("resolving home dir: %w", err)
+		}
+		switch runtime.GOOS {
+		case "darwin":
+			// MacOS data location: "~/Library/Application Support"
+			dataHome = filepath.Join(home, "Library", "Application Support")
+		// // not supporting windows right now, maybe later
+		// case "windows":
+		// 	dataHome = os.Getenv("APPDATA")
+		// 	if dataHome == "" {
+		// 		dataHome = filepath.Join(home, "AppData", "Roaming")
+		// 	}
+		default: // linux, bsd, etc.
+			dataHome = filepath.Join(home, ".local", "share")
+		}
+	}
+
+	// 3. Create the app folder
+	appDir := filepath.Join(dataHome, appName())
+	if err := os.MkdirAll(appDir, 0o700); err != nil {
+		return "", fmt.Errorf("creating app data dir: %w", err)
+	}
+	return appDir, nil
+}
+
 func main() {
 	dbPath := "pokedata.db"
 	var gdb *gorm.DB = nil
@@ -32,7 +76,7 @@ func main() {
 	if !setup.FileExists(dbPath) {
 		var errs []error
 		// * Fetch Data From PokeAPI, Create SQLite DB, seeded with API Data
-		gdb, errs = setup.FetchDataAndCreateDB(dbPath, http.DefaultClient)
+		gdb, errs = setup.FetchDataAndCreateDB(dbPath, nil)
 		if errs != nil || len(errs) > 0 {
 			printErrExit(errs...)
 		}

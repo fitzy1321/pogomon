@@ -9,7 +9,7 @@ import (
 	"os"
 	"sync"
 
-	. "go-pokebattle/result"
+	. "pogomon/result"
 )
 
 type HttpGetter interface {

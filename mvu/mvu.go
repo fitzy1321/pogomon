@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"go-pokebattle/sqlmodels"
+	"pogomon/sqlmodels"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/bubbles/key"
