@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"encoding/gob"
 	"fmt"
 	"os"
 	"path"
@@ -12,6 +11,16 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 )
+
+var GoModAppName string
+
+func init() {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		GoModAppName = "pogomon"
+	}
+	GoModAppName = path.Base(info.Main.Path)
+}
 
 func FileExists(path string) bool {
 	_, err := os.Stat(path)
@@ -26,60 +35,8 @@ func FileExists(path string) bool {
 	return false
 }
 
-func checkForGobExtension(fpath string) error {
-	gobext := filepath.Ext(fpath)
-	if gobext != ".gob" {
-		return fmt.Errorf("ERROR:::File path provided is not a gob file.\nRejeected Filepath: %s", fpath)
-	}
-	return nil
-}
-
-func SaveGobFile[T any](data []T, fpath string) error {
-	if err := checkForGobExtension(fpath); err != nil {
-		return err
-	}
-
-	file, err := os.Create(fpath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	enc := gob.NewEncoder(file)
-	if err := enc.Encode(&data); err != nil {
-		return err
-	}
-	return nil
-}
-
-func LoadGobFile[T any](fpath string) ([]T, error) {
-	if err := checkForGobExtension(fpath); err != nil {
-		return nil, err
-	}
-	var data []T
-	file, err := os.Open(fpath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	dec := gob.NewDecoder(file)
-	if err := dec.Decode(&data); err != nil {
-		return nil, err
-	}
-	return data, nil
-}
-
 func ToTitle(str string) string {
 	return cases.Title(language.Und, cases.NoLower).String(str)
-}
-
-func appName() string {
-	info, ok := debug.ReadBuildInfo()
-	if !ok {
-		return "go-pokebattle"
-	}
-	return path.Base(info.Main.Path)
 }
 
 func GetDataDirPath() (string, error) {
@@ -108,7 +65,7 @@ func GetDataDirPath() (string, error) {
 	}
 
 	// 3. Create the app folder
-	appDir := filepath.Join(dataHome, appName())
+	appDir := filepath.Join(dataHome, GoModAppName)
 	if err := os.MkdirAll(appDir, 0o700); err != nil {
 		return "", fmt.Errorf("creating app data dir: %w", err)
 	}

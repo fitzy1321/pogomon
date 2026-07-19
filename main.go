@@ -22,9 +22,9 @@ func printErrExit(errs ...error) {
 
 func main() {
 	// TODO * fix dbFilePath for XDG and OS specific locations later
-	_, err := utils.GetDataDirPath()
-	if err != nil {
-		printErrExit(err)
+	_, dErr := utils.GetDataDirPath()
+	if dErr != nil {
+		printErrExit(dErr)
 	}
 	dbFilePath := consts.DBFILEPATH
 	var gdb *gorm.DB = nil
@@ -36,9 +36,6 @@ func main() {
 		if errs != nil || len(errs) > 0 {
 			printErrExit(errs...)
 		}
-		// * Wait for terminal input
-		fmt.Print("> ")
-		fmt.Scanln()
 	} else {
 		var err error = nil
 		gdb, err = setup.GetGormSqliteDB(dbFilePath)
@@ -52,6 +49,12 @@ func main() {
 	if err != nil {
 		printErrExit(err)
 	}
+
+	// * Wait for terminal input before tui starts
+	fmt.Print("> ")
+	fmt.Scanln()
+
+	// * Start Bubbletea TUI app
 	p := tea.NewProgram(*model)
 
 	// * Run Bubbletea app

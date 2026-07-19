@@ -1,15 +1,18 @@
 package setup
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
 	"pogomon/consts"
-	. "pogomon/store"
+	"pogomon/store"
 
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+const FOREIGNKEYSTR string = "?_foreign_keys=on"
 
 // Open a connection to sqlite and initalize gorm
 func GetGormSqliteDB(dbPath string) (*gorm.DB, error) {
@@ -22,8 +25,9 @@ func GetGormSqliteDB(dbPath string) (*gorm.DB, error) {
 		return db, err
 	}
 
-	if res := db.Exec("PRAGMA foreign_keys = ON", nil); res.Error != nil {
-		return nil, res.Error
+	var enabled int
+	if db.Raw("PRAGMA foreign_keys").Scan(&enabled); enabled != 1 {
+		return nil, errors.New("Sqlite Foreign keys not enabled ...")
 	}
 
 	return db, nil
@@ -41,27 +45,27 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 	}
 
 	err = gdb.AutoMigrate(
-		&Pokemon{},
-		&Move{},
-		&PokemonMove{},
-		&Evolution{},
-		&UserSave{},
-		&PartyPokemon{},
-		&PartyPokemonMove{},
+		&store.Pokemon{},
+		&store.Move{},
+		&store.PokemonMove{},
+		&store.Evolution{},
+		&store.UserSave{},
+		&store.PartyPokemon{},
+		&store.PartyPokemonMove{},
 	)
 
 	if err != nil {
 		return gdb, err
 	}
 
-	pokemon := make([]Pokemon, 0, consts.GEN1POKEMONCOUNT)
-	var moves []Move
-	var pokemonMoves []PokemonMove
+	pokemon := make([]store.Pokemon, 0, consts.GEN1POKEMONCOUNT)
+	var moves []store.Move
+	var pokemonMoves []store.PokemonMove
 	moveIdSet := make(map[uint]any)
-	var evolutions []Evolution
+	var evolutions []store.Evolution
 
 	for _, pitem := range apiData {
-		pokemon = append(pokemon, Pokemon{
+		pokemon = append(pokemon, store.Pokemon{
 			ID:             pitem.ID,
 			Name:           pitem.Name,
 			Type1:          pitem.Type1,
@@ -82,7 +86,7 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 			// NOTE: Deduplicate PokemonMoves -> Moves slice
 			if _, exists := moveIdSet[mitem.ID]; !exists {
 				moveIdSet[mitem.ID] = struct{}{}
-				moves = append(moves, Move{
+				moves = append(moves, store.Move{
 					ID:            mitem.ID,
 					Name:          mitem.Name,
 					Power:         mitem.Power,
@@ -97,7 +101,7 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 					Drain:         mitem.Drain,
 				})
 			}
-			pokemonMoves = append(pokemonMoves, PokemonMove{
+			pokemonMoves = append(pokemonMoves, store.PokemonMove{
 				PokemonID:    pitem.ID,
 				MoveID:       mitem.ID,
 				LevelLearned: mitem.LevelLearned,
@@ -106,7 +110,7 @@ func CreateAndSeedDB(apiData []PokeApiData, dbPath string) (*gorm.DB, error) {
 		}
 
 		for _, evoRaw := range pitem.NextEvolutions {
-			evolutions = append(evolutions, Evolution{
+			evolutions = append(evolutions, store.Evolution{
 				PokemonID:       pitem.ID,
 				EvolvesIntoID:   evoRaw.EvolvesIntoID,
 				EvolvesIntoName: evoRaw.EvolvesIntoName,

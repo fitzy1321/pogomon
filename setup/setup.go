@@ -18,18 +18,16 @@ import (
 
 const (
 	BASEURL             string = "https://pokeapi.co/api/v2"
-	FOREIGNKEYSTR       string = "?_foreign_keys=on"
 	SPRITEURLBASE       string = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-i/red-blue/transparent"
 	TradeEvolutionLevel int    = 32
 )
 
-// type aliases
 type (
+	// type aliases
 	dict = map[string]any
 	pp_t = *PokeApiData
-)
 
-type (
+	// internal models for fetching data
 	PokeApiData struct {
 		ID             uint
 		Name           string
@@ -94,26 +92,38 @@ type (
 		url    string
 		method string
 	}
+
+	// http interface and opts
+	HttpGetter interface {
+		Get(url string) (resp *http.Response, err error)
+	}
+
+	fetchOpts struct {
+		client HttpGetter
+	}
+
+	Options func(*fetchOpts)
 )
 
 // Call PokeAPI and etl into Sqlite tables
 func FetchDataAndCreateDB(dbPath string) (*gorm.DB, []error) {
 	var data []PokeApiData
+	var errs []error
+
 	if utils.FileExists(consts.CACHEFILE) {
 		var err error
-		data, err = utils.LoadGobFile[PokeApiData](consts.CACHEFILE)
+		data, err = LoadGobFile[PokeApiData](consts.CACHEFILE)
 		if err != nil {
 			return nil, []error{err}
 		}
 	} else {
 		dataCh := make(chan Result[pp_t], consts.GEN1POKEMONCOUNT)
 		sema := make(chan struct{}, 20) // to cap # goroutines running
-
 		wg := sync.WaitGroup{}
+		wg.Add(consts.GEN1POKEMONCOUNT)
 		for i := range consts.GEN1POKEMONCOUNT {
 			pokeId := uint(i + 1)
 
-			wg.Add(1)
 			go func(id uint) {
 				sema <- struct{}{}                   // blocks when buf-chan is full
 				defer func() { <-sema; wg.Done() }() // unblocks buf-chan
@@ -122,9 +132,6 @@ func FetchDataAndCreateDB(dbPath string) (*gorm.DB, []error) {
 		}
 		wg.Wait()
 		close(dataCh)
-
-		data := make([]PokeApiData, 0, consts.GEN1POKEMONCOUNT)
-		var errs []error
 		for r := range dataCh {
 			if r.IsOk() {
 				data = append(data, *r.Value)
@@ -141,33 +148,22 @@ func FetchDataAndCreateDB(dbPath string) (*gorm.DB, []error) {
 		if len(data) == 0 {
 			return nil, []error{errors.New("Failed to fetch data from PokeAPI")}
 		}
-		// if fOpts.SaveToCacheFile {
-		err := utils.SaveGobFile(data, consts.CACHEFILE)
+
+		err := SaveGobFile(data, consts.CACHEFILE)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error occurred saving cache gob file: %+v\n", err)
 		}
-		// }
-	}
+	} // end else
 
 	res, err := CreateAndSeedDB(data, dbPath)
 	if err != nil {
-		return res, []error{err}
+		errs = append(errs, err)
+		return res, errs
 	}
 	return res, nil
 }
 
-type (
-	HttpGetter interface {
-		Get(url string) (resp *http.Response, err error)
-	}
-
-	fetchOpts struct {
-		client HttpGetter
-	}
-
-	Options func(*fetchOpts)
-)
-
+// use like this `topLevelPokemonData(id, WithHttpDefaultClient(), otherFuncsReturningFuncs())`
 func WithHttpDefaultClient() func(*fetchOpts) {
 	return func(f *fetchOpts) { f.client = http.DefaultClient }
 }
@@ -544,14 +540,19 @@ func _evoWalk(client HttpGetter, node dict, target string) ([]NextEvoData, error
 func _buildEvoEntry(client HttpGetter, nextNode map[string]any) (*NextEvoData, error) {
 	species := nextNode["species"].(dict)
 	nextName := species["name"].(string)
+	// fmt.Printf("Debugging something %s\n", nextName)
+	dataCh := make(chan Result[dict])
 
-	details := nextNode["evolution_details"].([]any)
+	go func() {
+		dataCh <- Wrap(networkGetHandler(client, fmt.Sprintf("%s/pokemon/%s/", BASEURL, nextName)))
+	}()
+
+	details, ok := nextNode["evolution_details"].([]any)
 	var detail dict
-	if len(details) > 0 {
-		detail, _ = details[0].(dict)
-	}
-	if detail == nil {
+	if !ok || details == nil || len(details) == 0 {
 		detail = make(map[string]any)
+	} else {
+		detail, _ = details[0].(dict)
 	}
 
 	var minLevel int
@@ -573,23 +574,19 @@ func _buildEvoEntry(client HttpGetter, nextNode map[string]any) (*NextEvoData, e
 		minLevel = TradeEvolutionLevel
 		item = nil
 	}
-
-	nextPokeData, err := networkGetHandler(client, fmt.Sprintf("%s/pokemon/%s/", BASEURL, nextName))
-	if err != nil {
-		return nil, err
+	dataRes := <-dataCh
+	if dataRes.IsErr() {
+		return nil, dataRes.Error
 	}
+	nextPokeData := dataRes.Value
 
-	fNextID, ok := nextPokeData["id"].(float64)
-	if !ok || fNextID == 0.0 {
+	nextId, ok := nextPokeData["id"].(float64)
+	if !ok || nextId == 0 || nextId > consts.GEN1POKEMONCOUNT_float64 {
 		return nil, nil
-	}
-	nextId := uint(fNextID)
-	if nextId == 0 || nextId > consts.GEN1POKEMONCOUNT_uint {
-		return nil, errors.New("Next Evolutions Pokemon ID could not be parsed or was out of range ...")
 	}
 
 	return &NextEvoData{
-		EvolvesIntoID:   nextId,
+		EvolvesIntoID:   uint(nextId),
 		EvolvesIntoName: &nextName,
 		Trigger:         &trigger,
 		MinLevel:        &minLevel,
